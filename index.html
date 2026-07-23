@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Assay Bench — Silent Gear Alloy Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="grain"></div>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <div class="brand">
+      <span class="eyebrow">Silent Gear · Material Tool</span>
+      <h1>Assay Bench</h1>
+      <p class="tagline">Drop in your material export, mark what you value, and it'll rank every material — and every 1‑to‑6 part alloy — from best to worst.</p>
+    </div>
+    <div class="furnace-signature" aria-hidden="true">
+      <svg viewBox="0 0 120 120" width="90" height="90">
+        <circle cx="60" cy="60" r="52" class="ring-track"/>
+        <circle id="heroRing" cx="60" cy="60" r="52" class="ring-fill"/>
+        <text x="60" y="56" class="ring-label-top">SYN</text>
+        <text x="60" y="75" class="ring-label-bottom">1.00x</text>
+      </svg>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- STEP 1: UPLOAD -->
+  <section id="uploadSection" class="panel upload-panel">
+    <div class="panel-head">
+      <span class="step-tag">01</span>
+      <h2>Load a material export</h2>
+    </div>
+    <p class="hint">Tab‑separated (.tsv) file, first row = column headers. Works with the export from any modpack — it isn't tied to any fixed material list.</p>
+
+    <label id="dropzone" for="fileInput" class="dropzone">
+      <input type="file" id="fileInput" accept=".tsv,.txt,text/tab-separated-values" hidden>
+      <div class="dz-icon">⛃</div>
+      <div class="dz-text">
+        <strong>Choose a file</strong> or drag it here
+      </div>
+    </label>
+
+    <div class="upload-actions">
+      <button id="sampleDataBtn" class="btn btn-ghost" type="button">Try it with sample data</button>
+      <span id="fileStatus" class="file-status"></span>
+    </div>
+    <div id="uploadError" class="error-box" hidden></div>
+  </section>
+
+  <!-- MAIN APP (hidden until data loaded) -->
+  <div id="app" hidden>
+
+    <div class="data-strip panel">
+      <div>
+        <strong id="dataFileName">—</strong>
+        <span id="dataSummary" class="muted"></span>
+      </div>
+      <button id="reloadBtn" class="btn btn-ghost btn-sm" type="button">Load a different file</button>
+    </div>
+
+    <!-- STEP 2: STAT CHECKLIST -->
+    <section class="panel">
+      <div class="panel-head">
+        <span class="step-tag">02</span>
+        <h2>What do you value?</h2>
+      </div>
+      <p class="hint">Pick the stats to rank on. Both tabs below use this same list.</p>
+      <div class="checklist-toolbar">
+        <button id="statsAllBtn" class="btn btn-ghost btn-sm" type="button">Select all</button>
+        <button id="statsNoneBtn" class="btn btn-ghost btn-sm" type="button">Clear</button>
+        <span id="statsCount" class="muted"></span>
+      </div>
+      <div id="statChecklist" class="stat-grid"></div>
+    </section>
+
+    <!-- STEP 3: TABS -->
+    <section class="panel tabs-panel">
+      <div class="tabs" role="tablist">
+        <button class="tab-btn active" data-tab="single" role="tab">Single Materials</button>
+        <button class="tab-btn" data-tab="alloy" role="tab">Forged Alloys (1–6)</button>
+      </div>
+
+      <!-- TAB 1 -->
+      <div id="tab-single" class="tab-panel active">
+        <div class="filter-row">
+          <label class="field-label">Part type
+            <select id="singleTypeFilter"></select>
+          </label>
+          <label class="field-label checkbox-field">
+            <input type="checkbox" id="singleHideExamples" checked>
+            Hide template/example entries
+          </label>
+        </div>
+        <div id="singleResults" class="results-list"></div>
+        <div id="singlePager" class="pager"></div>
+      </div>
+
+      <!-- TAB 2 -->
+      <div id="tab-alloy" class="tab-panel">
+        <div class="alloy-config">
+          <div class="alloy-config-row">
+            <label class="field-label">Candidate part types
+              <div id="alloyTypeChecks" class="chip-row"></div>
+            </label>
+          </div>
+          <div class="alloy-config-row">
+            <label class="field-label">Name filter
+              <input type="text" id="alloyNameFilter" placeholder="e.g. wool, steel…">
+            </label>
+            <label class="field-label checkbox-field">
+              <input type="checkbox" id="alloyHideExamples" checked>
+              Hide template/example entries
+            </label>
+          </div>
+
+          <div id="alloyMaterialPicker" class="material-picker"></div>
+          <div class="picker-toolbar">
+            <button id="alloySelectVisibleBtn" class="btn btn-ghost btn-sm" type="button">Select all visible</button>
+            <button id="alloyClearBtn" class="btn btn-ghost btn-sm" type="button">Clear selection</button>
+            <span id="alloySelectedCount" class="muted"></span>
+          </div>
+
+          <div class="alloy-config-row size-row">
+            <label class="field-label">
+              Max alloy size: <strong id="alloySizeVal">3</strong>
+              <input type="range" id="alloySize" min="1" max="6" value="3" step="1">
+            </label>
+            <div id="comboEstimate" class="combo-estimate"></div>
+          </div>
+
+          <button id="computeAlloysBtn" class="btn btn-primary" type="button" disabled>Compute rankings</button>
+          <div id="alloyComputeMsg" class="muted"></div>
+        </div>
+
+        <div id="alloyResults" class="results-list"></div>
+        <div id="alloyPager" class="pager"></div>
+      </div>
+    </section>
+  </div>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <details>
+      <summary>How the numbers are calculated</summary>
+      <div class="explainer">
+        <p><strong>Per‑material values.</strong> Each cell in your file is read as one or more tokens: a plain number averages in as a base value; <code>+N</code> adds flat; <code>N%</code> with a sign scales the running total; a bare <code>N%</code> averages in as a fraction; <code>xN</code> multiplies the total; a trailing <code>Nx</code> averages in as a multiplier baseline; and <code>name (N)</code> (used for Rarity / Harvest Tier) reads the number in parentheses.</p>
+        <p><strong>Combining an alloy.</strong> All tokens from every chosen part are pooled in the order the parts were chosen. Whichever part comes first sets the "primary" baseline value, which weights every other averaged token — so putting a different part first can change the result, exactly like in‑game. Everything after the first part is treated as an unordered group, matching how the weighting math behaves for anything past the primary slot.</p>
+        <p><strong>Synergy.</strong> Recreated from the mod's own formula: a bonus for using more distinct parts, a penalty if the parts share no common category, a small bonus for categories shared by more than one part, and a small penalty scaled by how far each part's Rarity sits from the first part's Rarity. Synergy is clamped between 0.1x and 2.0x. Traits are shown for reference but aren't factored into these numbers, since their effects aren't data‑driven in the export.</p>
+        <p><strong>Ranking.</strong> For every stat you selected, every material/alloy gets a rank — lowest raw value = rank 1. Ranks across all your selected stats are averaged, and the final list is sorted with the lowest average rank first.</p>
+        <p><strong>Why the alloy tab limits your selection.</strong> Order‑sensitive combinations with repeats allowed grow explosively (imagine picking a first part, then any 5 more from the same list). To keep the browser responsive, narrow the candidate list and/or the max alloy size until the combination count fits inside the budget shown above the Compute button.</p>
+      </div>
+    </details>
+    <p class="foot-note">Runs entirely in your browser — nothing you upload leaves your machine.</p>
+  </div>
+</footer>
+
+<script src="sample-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
