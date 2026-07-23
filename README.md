@@ -1,32 +1,14 @@
 # Assay Bench — Silent Gear Alloy Calculator
 
-A static, client-side website that ranks Silent Gear materials — and 1‑to‑6 part
-forged alloys — by whichever stats you care about. Nothing you upload ever
-leaves your browser; there's no server or backend.
+A static, client-side website that ranks Silent Gear armor (either normal materials or custom alloys if you prefer). 
+Nothing you upload ever leaves your browser; there's no server or backend. Made with the help of ai (because I'm not that smart)
 
-## Putting it on GitHub Pages
-
-1. Create a new GitHub repository (or use an existing one).
-2. Add these three files to the repo root (or to a `/docs` folder):
-   - `index.html`
-   - `style.css`
-   - `app.js`
-   - `sample-data.js`
-3. Commit and push.
-4. In the repo, go to **Settings → Pages**, set **Source** to the branch/folder
-   you used (e.g. `main` / root, or `main` / `docs`), and save.
-5. GitHub will give you a URL like `https://yourname.github.io/your-repo/`.
-   That's the live site.
-
-No build step, no dependencies, no npm — it's plain HTML/CSS/JS.
 
 ## Using it
 
 1. Open the site and upload your material export `.tsv` (or click **"Try it
-   with sample data"** to see it work first). The file needs a header row and
-   one row per material entry — the same layout Silent Gear's material export
-   already uses.
-2. Check the stats you care about.
+   with sample data"** to see it work first). You can get this using the `/sgear_mats dump` command in game
+2. Check the stats you care about the most different alloys prioritize different stats.
 3. **Single Materials** tab ranks every individual material row on its own.
 4. **Forged Alloys** tab lets you pick a candidate pool (filter by part type
    and/or name), a max alloy size (1–6), and computes every meaningful
