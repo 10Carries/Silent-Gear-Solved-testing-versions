@@ -303,6 +303,12 @@ main{ padding: 32px 0 60px; }
 .result-meta{ font-family: var(--font-mono); font-size: 12px; color: var(--text-faint); }
 .composition{ font-size: 12.5px; color: var(--text-dim); margin-bottom: 8px; }
 .composition .primary-tag{ color: var(--steel-soft); font-weight:600; }
+.type-stat-block{ margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border-soft); }
+.type-stat-block:first-of-type{ border-top: none; padding-top: 0; }
+.type-stat-heading{
+  font-family: var(--font-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--steel-soft); margin-bottom: 4px;
+}
 .stat-values{ display:flex; flex-wrap:wrap; gap: 6px 14px; font-family: var(--font-mono); font-size: 12.5px; }
 .stat-values span b{ color: var(--text); }
 .avg-rank{ font-family: var(--font-mono); font-size: 12px; color: var(--text-faint); margin-top: 8px; }
@@ -521,7 +527,8 @@ main{ padding: 32px 0 60px; }
       <div class="explainer">
         <p><strong>Per‑material values.</strong> Each cell in your file is read as one or more tokens: a plain number averages in as a base value; <code>+N</code> adds flat; <code>N%</code> with a sign scales the running total; a bare <code>N%</code> averages in as a fraction; <code>xN</code> multiplies the total; a trailing <code>Nx</code> averages in as a multiplier baseline; and <code>name (N)</code> (used for Rarity / Harvest Tier) reads the number in parentheses.</p>
         <p><strong>Which materials can alloy together.</strong> A material can be a Coating, Grip, Main, etc. depending on which rows it has in your file. Two or more materials can only be alloyed if they share at least one of those roles (in‑game logic, recreated from <code>AlloyMakerBlockEntity</code>), and a shared role is dropped if every material in the recipe is flagged "Additive" for it. Whatever roles survive are the only ones the resulting alloy keeps — so combining Iron and Gold keeps whatever they both do, but drops "Coating" since Iron can't be one.</p>
-        <p><strong>Combining an alloy.</strong> For every surviving shared role, every material's token for that role is pooled, in the order the materials were chosen. Whichever material comes first sets the "primary" baseline that weights every other averaged token — so a different pick for the first slot changes the result, same as in‑game. Materials after the first are treated as an unordered group, matching how the weighting math behaves for anything past the primary slot. <strong>Harvest Tier is the one exception</strong> — it isn't averaged at all, it simply takes the highest tier among the materials used.</p>
+        <p><strong>Combining an alloy.</strong> An alloy needs at least 2 <em>different</em> materials — a stack of six of the same material isn't an alloy, so those combinations are excluded entirely. For every surviving shared role, every material's token for that role is pooled, in the order the materials were chosen. Whichever material comes first sets the "primary" baseline that weights every other averaged token — so a different pick for the first slot changes the result, same as in‑game. Materials after the first are treated as an unordered group, matching how the weighting math behaves for anything past the primary slot. <strong>Harvest Tier is the one exception</strong> — it isn't averaged at all, it simply takes the highest tier among the materials used.</p>
+        <p><strong>Different roles, different stats.</strong> The same materials produce different numbers depending on which role they're filling — Gold+Netherite as a Coating behaves nothing like Gold+Netherite as a Main. Each result lists every surviving role separately with its own stat values, rather than blending them into one number. Ranking is based on whichever role is used as "primary" for that purpose: Main if the alloy keeps it (since it carries most combat/armor stats), otherwise the first surviving role alphabetically — marked in the results.</p>
         <p><strong>Synergy.</strong> Recreated from the mod's own formula: a bonus for using more distinct materials, a penalty if the parts share no common category, a small bonus for categories shared by more than one part, and a small penalty scaled by how far each part's Rarity sits from the first part's Rarity. Synergy is clamped between 0.1x and 2.0x, and isn't applied to Harvest Tier. Traits are shown/filterable for reference but their exact mechanical effects aren't factored into the math, since that logic isn't data‑driven in the export.</p>
         <p><strong>Which station makes it.</strong> Four stations exist, each accepting different material categories: the <strong>Alloy Forge / Metal Alloyer</strong> (Metal and/or Dust), the <strong>Super Mixer</strong> (any category, added in version 4.0.2), the <strong>Recrystalizer</strong> (Gem and/or Dust), and the <strong>Refabricator</strong> (Slime, Fiber, and/or Cloth). Every material in a recipe must match a station's accepted categories for that station to work. All four are slot‑limited (4 slots before version 4.1.5, 6 from 4.1.5 on — except the Super Mixer, which goes from 4 to 8), and you can turn any station off if you don't have access to it. Set your version above and untick any machines you can't use.</p>
         <p><strong>Ranking.</strong> For every stat you selected, every material/alloy gets a rank — highest final value = rank 1. Ranks across all your selected stats are averaged, and the final list is sorted with the lowest average rank (i.e. the best overall) first.</p>
@@ -804,7 +811,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     return result;
   }
 
-  function computeStatForCombo(materials, stat, sharedTypesArr) {
+  function computeStatForType(materials, stat, type) {
     if (stat === "Harvest Tier") {
       let mx = -Infinity;
       for (const m of materials) if (m.harvestTierValue > mx) mx = m.harvestTierValue;
@@ -812,12 +819,26 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     }
     const tokenLists = [];
     for (const m of materials) {
-      for (const t of sharedTypesArr) {
-        const row = m.rows[t];
-        if (row) tokenLists.push(row.tokensByStat[stat]);
-      }
+      const row = m.rows[type];
+      if (row) tokenLists.push(row.tokensByStat[stat]);
     }
     return combineTokenLists(tokenLists);
+  }
+
+  // Which shared role represents the alloy's "primary" use for ranking purposes.
+  // Main is preferred (it's what carries most combat/armor stats); otherwise the
+  // first shared role alphabetically, so the choice is at least deterministic.
+  function getRankingType(sharedTypesArr) {
+    if (sharedTypesArr.includes("Main")) return "Main";
+    return sharedTypesArr.slice().sort()[0];
+  }
+
+  function computeStatForCombo(materials, stat, sharedTypesArr) {
+    // Ranking is based on a single role rather than blending every shared
+    // role's tokens together, since different roles (Main vs Coating vs Grip,
+    // etc.) carry genuinely different stats in-game — blending them wouldn't
+    // correspond to anything the game actually computes.
+    return computeStatForType(materials, stat, getRankingType(sharedTypesArr));
   }
 
   function extractComboTraits(materials, sharedTypesArr) {
@@ -1301,12 +1322,19 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
   };
   const alloySizeInput = $("#alloySize");
 
+  let superMixerForcedOffByVersion = versionSelect.value === "pre402";
+
   versionSelect.addEventListener("change", () => {
     if (versionSelect.value === "pre402") {
       machineCheckboxes.superMixer.checked = false;
       machineCheckboxes.superMixer.disabled = true;
+      superMixerForcedOffByVersion = true;
     } else {
       machineCheckboxes.superMixer.disabled = false;
+      if (superMixerForcedOffByVersion) {
+        machineCheckboxes.superMixer.checked = true; // restore default now that it exists again
+      }
+      superMixerForcedOffByVersion = false;
     }
     updateSlotHint();
     updateEligibilityHint();
@@ -1413,24 +1441,27 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       let res = gen.next();
       while (!res.done && count < CHUNK_SIZE) {
         const combo = res.value;
-        const sharedTypesSet = getSharedTypes(combo);
-        if (sharedTypesSet.size > 0) {
-          const makerTags = getMakerTags(combo, cfg);
-          if (makerTags) {
-            const sharedTypesArr = Array.from(sharedTypesSet);
-            let passTraits = true;
-            if (traitFilterSet.size > 0) {
-              const comboTraits = extractComboTraits(combo, sharedTypesArr);
-              for (const t of traitFilterSet) { if (!comboTraits.has(t)) { passTraits = false; break; } }
-            }
-            if (passTraits) {
-              const synergy = computeSynergy(combo);
-              const values = {};
-              selectedStats.forEach(stat => {
-                const raw = computeStatForCombo(combo, stat, sharedTypesArr);
-                values[stat] = stat === "Harvest Tier" ? raw : raw * synergy;
-              });
-              results.push({ materials: combo, synergy, values, sharedTypes: sharedTypesArr, makerTags, single: false });
+        const uniqueCount = new Set(combo.map(m => m.key)).size;
+        if (uniqueCount >= 2) {
+          const sharedTypesSet = getSharedTypes(combo);
+          if (sharedTypesSet.size > 0) {
+            const makerTags = getMakerTags(combo, cfg);
+            if (makerTags) {
+              const sharedTypesArr = Array.from(sharedTypesSet);
+              let passTraits = true;
+              if (traitFilterSet.size > 0) {
+                const comboTraits = extractComboTraits(combo, sharedTypesArr);
+                for (const t of traitFilterSet) { if (!comboTraits.has(t)) { passTraits = false; break; } }
+              }
+              if (passTraits) {
+                const synergy = computeSynergy(combo);
+                const values = {};
+                selectedStats.forEach(stat => {
+                  const raw = computeStatForCombo(combo, stat, sharedTypesArr);
+                  values[stat] = stat === "Harvest Tier" ? raw : raw * synergy;
+                });
+                results.push({ materials: combo, synergy, values, sharedTypes: sharedTypesArr, makerTags, single: false });
+              }
             }
           }
         }
@@ -1553,13 +1584,32 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       body.appendChild(el("div", { class: "composition" }, [document.createTextNode(mats[0].type + " · " + (mats[0].categories.join(", ") || "—"))]));
     }
 
-    const statValues = el("div", { class: "stat-values" });
-    selectedStats.forEach(stat => {
-      const span = el("span", {}, [document.createTextNode(stat + ": ")]);
-      span.appendChild(el("b", {}, [document.createTextNode(formatNum(item.values[stat]))]));
-      statValues.appendChild(span);
-    });
-    body.appendChild(statValues);
+    if (item.single) {
+      const statValues = el("div", { class: "stat-values" });
+      selectedStats.forEach(stat => {
+        const span = el("span", {}, [document.createTextNode(stat + ": ")]);
+        span.appendChild(el("b", {}, [document.createTextNode(formatNum(item.values[stat]))]));
+        statValues.appendChild(span);
+      });
+      body.appendChild(statValues);
+    } else {
+      const rankingType = getRankingType(item.sharedTypes);
+      item.sharedTypes.slice().sort().forEach(type => {
+        const block = el("div", { class: "type-stat-block" });
+        const headingText = "As " + type + (type === rankingType ? " (used for ranking)" : "");
+        block.appendChild(el("div", { class: "type-stat-heading" }, [document.createTextNode(headingText)]));
+        const statValues = el("div", { class: "stat-values" });
+        selectedStats.forEach(stat => {
+          const raw = computeStatForType(mats, stat, type);
+          const val = stat === "Harvest Tier" ? raw : raw * item.synergy;
+          const span = el("span", {}, [document.createTextNode(stat + ": ")]);
+          span.appendChild(el("b", {}, [document.createTextNode(formatNum(val))]));
+          statValues.appendChild(span);
+        });
+        block.appendChild(statValues);
+        body.appendChild(block);
+      });
+    }
 
     body.appendChild(el("div", { class: "avg-rank" }, [document.createTextNode("Average rank: " + formatNum(entry.avgRank))]));
     card.appendChild(body);
