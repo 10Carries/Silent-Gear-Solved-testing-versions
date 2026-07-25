@@ -262,6 +262,30 @@ main{ padding: 32px 0 60px; }
 .filter-details > *:not(summary){ margin-top: 12px; }
 
 .eligibility-hint{ margin-bottom: 12px; font-family: var(--font-mono); font-size: 12.5px; }
+.warning-text{ color: var(--bad); font-size: 12.5px; margin: -6px 0 14px; max-width: 60ch; }
+
+.type-chip{
+  position: relative;
+  display: inline-flex; align-items: center;
+  font-family: var(--font-mono); font-size: 11px; padding: 3px 9px; border-radius: 20px;
+  border: 1px solid var(--border); color: var(--text-dim); background: var(--panel-alt);
+  cursor: default;
+}
+.type-chip:hover{ border-color: var(--steel-soft); color: var(--text); }
+.type-tooltip{
+  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  background: var(--bg); border: 1px solid var(--steel-soft); border-radius: var(--radius);
+  padding: 10px 12px; min-width: 180px; max-width: 280px;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text); text-align: left;
+  white-space: normal; line-height: 1.6;
+  visibility: hidden; opacity: 0; transition: opacity 0.12s ease;
+  z-index: 20; box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+  pointer-events: none;
+}
+.type-chip:hover .type-tooltip, .type-chip:focus .type-tooltip{ visibility: visible; opacity: 1; }
+.type-tooltip .tt-title{ display:block; color: var(--steel-soft); font-weight:600; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em; font-size: 10.5px; }
+.type-tooltip .tt-line{ display:block; }
+.type-chips-row{ display:flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 
 /* Progress bar */
 .progress-wrap{ margin-top: 14px; display:flex; flex-direction:column; gap:6px; }
@@ -466,6 +490,12 @@ main{ padding: 32px 0 60px; }
             </label>
           </div>
 
+          <div class="alloy-config-row">
+            <label class="field-label">Rank &amp; display by role
+              <select id="rankTypeSelect"></select>
+            </label>
+          </div>
+
           <div class="alloy-config-row size-row">
             <label class="field-label">
               Max alloy size: <strong id="alloySizeVal">4</strong>
@@ -480,13 +510,9 @@ main{ padding: 32px 0 60px; }
               <label class="field-label">Mode
                 <select id="materialFilterMode">
                   <option value="none">No filter</option>
-                  <option value="whitelist">Whitelist</option>
+                  <option value="whitelist">Whitelist (use ONLY these)</option>
                   <option value="blacklist">Blacklist</option>
                 </select>
-              </label>
-              <label class="field-label checkbox-field">
-                <input type="checkbox" id="onlyWhitelisted">
-                Use ONLY whitelisted materials
               </label>
             </div>
             <label class="field-label">Search materials
@@ -500,6 +526,14 @@ main{ padding: 32px 0 60px; }
             <p class="hint">Only alloys with <em>all</em> checked traits present will be shown.</p>
             <div id="traitFilterList" class="chip-row"></div>
           </details>
+
+          <div class="alloy-config-row">
+            <label class="field-label checkbox-field">
+              <input type="checkbox" id="autoNarrowToggle" checked>
+              Auto-narrow the search (recommended)
+            </label>
+          </div>
+          <p class="warning-text">If auto-narrowing is turned off, the tool will search every eligible combination with no size budget — this can take a LOT of time to compute. A hard safety ceiling (2,000,000 combinations) still applies underneath, since going far past that risks crashing the browser tab rather than just being slow.</p>
 
           <div id="eligibilityHint" class="muted eligibility-hint"></div>
 
@@ -567,7 +601,8 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
 
   const REQUIRED_HEADERS = ["Name", "Type", "ID"];
   const RESULTS_PER_PAGE = 10;
-  const MAX_COMBOS = 350000; // safety/time budget for the alloy search
+  const MAX_COMBOS = 350000; // auto-narrowing budget (used to trim the pool when narrowing is on)
+  const HARD_CEILING = 2000000; // absolute stop, even with auto-narrowing off — past this a browser tab can run out of memory rather than just being slow
   const CHUNK_SIZE = 4000;
 
   const SYNERGY_MULTI = 1.1;
@@ -823,22 +858,6 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       if (row) tokenLists.push(row.tokensByStat[stat]);
     }
     return combineTokenLists(tokenLists);
-  }
-
-  // Which shared role represents the alloy's "primary" use for ranking purposes.
-  // Main is preferred (it's what carries most combat/armor stats); otherwise the
-  // first shared role alphabetically, so the choice is at least deterministic.
-  function getRankingType(sharedTypesArr) {
-    if (sharedTypesArr.includes("Main")) return "Main";
-    return sharedTypesArr.slice().sort()[0];
-  }
-
-  function computeStatForCombo(materials, stat, sharedTypesArr) {
-    // Ranking is based on a single role rather than blending every shared
-    // role's tokens together, since different roles (Main vs Coating vs Grip,
-    // etc.) carry genuinely different stats in-game — blending them wouldn't
-    // correspond to anything the game actually computes.
-    return computeStatForType(materials, stat, getRankingType(sharedTypesArr));
   }
 
   function extractComboTraits(materials, sharedTypesArr) {
@@ -1135,6 +1154,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     traitFilterSelection.clear();
     buildStatChecklist();
     buildSingleTypeFilter();
+    buildRankTypeDropdown();
     buildMaterialFilterPicker();
     buildTraitFilterList();
     updateSlotHint();
@@ -1218,6 +1238,16 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
   }
   $("#singleHideExamples").addEventListener("change", renderSingleTab);
 
+  function buildRankTypeDropdown() {
+    const types = Array.from(new Set(state.rows.map(r => r.type).filter(Boolean))).sort();
+    const sel = $("#rankTypeSelect");
+    sel.innerHTML = "";
+    types.forEach(t => sel.appendChild(el("option", { value: t }, [document.createTextNode(t)])));
+    sel.value = types.includes("Main") ? "Main" : (types[0] || "");
+    sel.addEventListener("change", () => { updateEligibilityHint(); });
+  }
+  $("#autoNarrowToggle").addEventListener("change", updateEligibilityHint);
+
   function getSingleCandidates() {
     const typeFilter = $("#singleTypeFilter").value;
     const hideEx = $("#singleHideExamples").checked;
@@ -1252,7 +1282,6 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     $("#materialFilterMode").addEventListener("change", () => {
       updateEligibilityHint();
     });
-    $("#onlyWhitelisted").addEventListener("change", updateEligibilityHint);
   }
 
   function renderMaterialFilterPicker() {
@@ -1281,8 +1310,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
   function getMaterialFilterSettings() {
     return {
       mode: $("#materialFilterMode").value,
-      ids: new Set(materialFilterSelection),
-      onlyWhitelisted: $("#onlyWhitelisted").checked
+      ids: new Set(materialFilterSelection)
     };
   }
 
@@ -1371,12 +1399,23 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     $("#slotHint").textContent = msg;
   }
 
-  function updateEligibilityHint() {
+  // Materials that don't even have the selected role can never keep it as a
+  // shared type, so they're excluded up front — this also means a whitelist
+  // is automatically narrowed to only its type-compatible members.
+  function getTypeAndFilterCandidates() {
+    const type = $("#rankTypeSelect").value;
+    let pool = state.materialDefs.filter(d => !!d.rows[type]);
     const filter = getMaterialFilterSettings();
-    let pool = state.materialDefs;
-    if (filter.mode === "blacklist") pool = pool.filter(d => !filter.ids.has(d.id));
-    else if (filter.mode === "whitelist" && filter.onlyWhitelisted) pool = pool.filter(d => filter.ids.has(d.id));
-    $("#eligibilityHint").textContent = pool.length + " material(s) currently eligible before auto‑narrowing.";
+    if (filter.mode === "whitelist") pool = pool.filter(d => filter.ids.has(d.id));
+    else if (filter.mode === "blacklist") pool = pool.filter(d => !filter.ids.has(d.id));
+    return pool;
+  }
+
+  function updateEligibilityHint() {
+    const pool = getTypeAndFilterCandidates();
+    const autoNarrow = $("#autoNarrowToggle").checked;
+    $("#eligibilityHint").textContent = pool.length + " material(s) currently eligible" +
+      (autoNarrow ? " before auto‑narrowing." : " (auto‑narrowing is off — all of these will be searched).");
   }
 
   function renderAlloyTab() {
@@ -1399,29 +1438,52 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
 
     const cfg = currentCfg();
     const maxK = parseInt(alloySizeInput.value, 10);
-    const filter = getMaterialFilterSettings();
+    const rankType = $("#rankTypeSelect").value;
+    const autoNarrow = $("#autoNarrowToggle").checked;
+    const traitFilterSet = new Set(traitFilterSelection);
 
-    let candidateDefs = state.materialDefs;
-    let forcedIds = null;
-    if (filter.mode === "blacklist") {
-      candidateDefs = candidateDefs.filter(d => !filter.ids.has(d.id));
-    } else if (filter.mode === "whitelist") {
-      if (filter.onlyWhitelisted) candidateDefs = candidateDefs.filter(d => filter.ids.has(d.id));
-      else forcedIds = filter.ids;
-    }
+    const candidateDefs = getTypeAndFilterCandidates();
 
     if (candidateDefs.length === 0) {
-      msg.textContent = "No materials match your filter settings.";
+      msg.textContent = "No materials match your filter settings and selected role.";
       $("#alloyResults").innerHTML = "";
       $("#alloyPager").innerHTML = "";
       return;
     }
 
-    const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
-    const pool = trimPoolToBudget(orderedByScore, forcedIds, maxK, cfg);
+    // Materials carrying at least one of the required traits (on the selected
+    // role's row) are always kept in the auto-narrowed pool, so trait filtering
+    // doesn't get starved out by pure stat-relevance scoring.
+    let forcedIds = null;
+    if (traitFilterSet.size > 0) {
+      forcedIds = new Set();
+      candidateDefs.forEach(d => {
+        const row = d.rows[rankType];
+        if (!row || !row.traits) return;
+        const traits = row.traits.split(",").map(s => s.trim()).filter(Boolean).map(baseTraitName);
+        if (traits.some(t => traitFilterSet.has(t))) forcedIds.add(d.id);
+      });
+    }
+
+    let pool;
+    if (autoNarrow) {
+      const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
+      pool = trimPoolToBudget(orderedByScore, forcedIds, maxK, cfg);
+    } else {
+      pool = candidateDefs;
+    }
 
     const total = estimateTotalForPool(pool.length, maxK, cfg);
-    const traitFilterSet = new Set(traitFilterSelection);
+
+    if (total > HARD_CEILING) {
+      msg.textContent = "That would be " + total.toLocaleString() + " combinations — over the " +
+        HARD_CEILING.toLocaleString() + " hard safety ceiling (a browser tab can run out of memory " +
+        "past this point, not just run slowly). Turn auto-narrowing back on, narrow your material " +
+        "filter, or reduce max alloy size.";
+      $("#alloyResults").innerHTML = "";
+      $("#alloyPager").innerHTML = "";
+      return;
+    }
 
     $("#computeAlloysBtn").disabled = true;
     const progressWrap = $("#progressWrap");
@@ -1430,7 +1492,9 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     progressWrap.hidden = false;
     progressFill.style.width = "0%";
     progressLabel.textContent = "Starting…";
-    msg.textContent = "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials for this search.";
+    msg.textContent = autoNarrow
+      ? "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials for this search."
+      : "Auto-narrowing is off — searching all " + pool.length + " eligible materials. This may take a while.";
 
     const gen = comboGenerator(pool, maxK, cfg);
     const results = [];
@@ -1444,7 +1508,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
         const uniqueCount = new Set(combo.map(m => m.key)).size;
         if (uniqueCount >= 2) {
           const sharedTypesSet = getSharedTypes(combo);
-          if (sharedTypesSet.size > 0) {
+          if (sharedTypesSet.has(rankType)) {
             const makerTags = getMakerTags(combo, cfg);
             if (makerTags) {
               const sharedTypesArr = Array.from(sharedTypesSet);
@@ -1457,10 +1521,10 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
                 const synergy = computeSynergy(combo);
                 const values = {};
                 selectedStats.forEach(stat => {
-                  const raw = computeStatForCombo(combo, stat, sharedTypesArr);
+                  const raw = computeStatForType(combo, stat, rankType);
                   values[stat] = stat === "Harvest Tier" ? raw : raw * synergy;
                 });
-                results.push({ materials: combo, synergy, values, sharedTypes: sharedTypesArr, makerTags, single: false });
+                results.push({ materials: combo, synergy, values, sharedTypes: sharedTypesArr, rankType, makerTags, single: false });
               }
             }
           }
@@ -1482,8 +1546,10 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
         state.alloy.computed = true;
         progressWrap.hidden = true;
         $("#computeAlloysBtn").disabled = false;
-        msg.textContent = "Auto-narrowed to " + pool.length + " of " + candidateDefs.length +
-          " eligible materials · checked " + total.toLocaleString() + " combinations · " +
+        msg.textContent = (autoNarrow
+          ? "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials"
+          : "Searched all " + pool.length + " eligible materials (auto-narrowing off)") +
+          " · checked " + total.toLocaleString() + " combinations · " +
           results.length.toLocaleString() + " valid alloys found.";
         renderResultsPage("alloy");
       }
@@ -1593,22 +1659,32 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       });
       body.appendChild(statValues);
     } else {
-      const rankingType = getRankingType(item.sharedTypes);
-      item.sharedTypes.slice().sort().forEach(type => {
-        const block = el("div", { class: "type-stat-block" });
-        const headingText = "As " + type + (type === rankingType ? " (used for ranking)" : "");
-        block.appendChild(el("div", { class: "type-stat-heading" }, [document.createTextNode(headingText)]));
-        const statValues = el("div", { class: "stat-values" });
-        selectedStats.forEach(stat => {
-          const raw = computeStatForType(mats, stat, type);
-          const val = stat === "Harvest Tier" ? raw : raw * item.synergy;
-          const span = el("span", {}, [document.createTextNode(stat + ": ")]);
-          span.appendChild(el("b", {}, [document.createTextNode(formatNum(val))]));
-          statValues.appendChild(span);
-        });
-        block.appendChild(statValues);
-        body.appendChild(block);
+      body.appendChild(el("div", { class: "type-stat-heading" }, [document.createTextNode("As " + item.rankType)]));
+      const statValues = el("div", { class: "stat-values" });
+      selectedStats.forEach(stat => {
+        const span = el("span", {}, [document.createTextNode(stat + ": ")]);
+        span.appendChild(el("b", {}, [document.createTextNode(formatNum(item.values[stat]))]));
+        statValues.appendChild(span);
       });
+      body.appendChild(statValues);
+
+      const otherTypes = item.sharedTypes.filter(t => t !== item.rankType).sort();
+      if (otherTypes.length) {
+        const chipsRow = el("div", { class: "type-chips-row" });
+        otherTypes.forEach(type => {
+          const chip = el("span", { class: "type-chip", tabindex: "0" }, [document.createTextNode(type)]);
+          const tooltip = el("div", { class: "type-tooltip" });
+          tooltip.appendChild(el("span", { class: "tt-title" }, [document.createTextNode("As " + type)]));
+          selectedStats.forEach(stat => {
+            const raw = computeStatForType(mats, stat, type);
+            const val = stat === "Harvest Tier" ? raw : raw * item.synergy;
+            tooltip.appendChild(el("span", { class: "tt-line" }, [document.createTextNode(stat + ": " + formatNum(val))]));
+          });
+          chip.appendChild(tooltip);
+          chipsRow.appendChild(chip);
+        });
+        body.appendChild(chipsRow);
+      }
     }
 
     body.appendChild(el("div", { class: "avg-rank" }, [document.createTextNode("Average rank: " + formatNum(entry.avgRank))]));
