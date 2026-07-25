@@ -6,10 +6,337 @@
 <title>Silent Gear Solved — Material &amp; Alloy Calculator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<style>
+:root{
+  --bg: #18140f;
+  --bg-alt: #1f1a14;
+  --panel: #221c15;
+  --panel-alt: #2b241b;
+  --border: #40372a;
+  --border-soft: #322a20;
+  --text: #eee7d8;
+  --text-dim: #a99d87;
+  --text-faint: #7d7260;
+
+  --ember: #e2591f;
+  --ember-soft: #f0834a;
+  --steel: #5aa8a0;
+  --steel-soft: #7fc2ba;
+  --gold: #cb9a2e;
+
+  --good: #7fbf6a;
+  --bad: #c85454;
+
+  --font-display: "Big Shoulders Display", sans-serif;
+  --font-body: "Archivo", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+
+  --radius: 3px;
+}
+
+*{ box-sizing: border-box; }
+
+html{ scroll-behavior: smooth; }
+
+body{
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.grain{
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  opacity: 0.035; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.wrap{ max-width: 980px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+/* Header */
+.site-header{
+  border-bottom: 1px solid var(--border-soft);
+  background:
+    radial-gradient(ellipse 700px 260px at 15% -20%, rgba(226,89,31,0.16), transparent 60%),
+    radial-gradient(ellipse 500px 220px at 100% 0%, rgba(90,168,160,0.10), transparent 60%);
+  padding: 40px 0 28px;
+}
+.header-inner{ display:flex; align-items:flex-end; justify-content: space-between; gap: 24px; }
+.eyebrow{
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--steel-soft);
+}
+.brand h1{
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 56px;
+  letter-spacing: 0.01em;
+  margin: 4px 0 10px;
+  color: var(--text);
+  text-transform: uppercase;
+  line-height: 0.95;
+}
+.tagline{ margin: 0; max-width: 46ch; color: var(--text-dim); font-size: 15px; }
+
+.furnace-signature{ flex-shrink: 0; }
+.ring-track{ fill:none; stroke: var(--border); stroke-width: 6; }
+.ring-fill{ fill:none; stroke: var(--ember); stroke-width: 6; stroke-linecap: round;
+  stroke-dasharray: 327; stroke-dashoffset: 82; transform-origin: 60px 60px; transform: rotate(-90deg);
+  transition: stroke-dashoffset 0.6s ease, stroke 0.6s ease; }
+.ring-label-top{ font-family: var(--font-mono); font-size: 11px; fill: var(--text-faint); text-anchor: middle; letter-spacing: 0.1em; }
+.ring-label-bottom{ font-family: var(--font-mono); font-size: 13px; fill: var(--text); text-anchor: middle; font-weight:600; }
+
+main{ padding: 32px 0 60px; }
+
+/* Panels */
+.panel{
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.panel-head{ display:flex; align-items:baseline; gap: 12px; margin-bottom: 6px; }
+.step-tag{
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--bg);
+  background: var(--gold);
+  padding: 2px 7px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+.panel-head h2{
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: 22px;
+  margin: 0;
+}
+.hint{ color: var(--text-dim); font-size: 13.5px; margin: 6px 0 16px; }
+.muted{ color: var(--text-faint); font-size: 13px; }
+
+/* Upload */
+.dropzone{
+  display:flex; align-items:center; gap:16px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.dropzone:hover, .dropzone.dragover{ border-color: var(--ember); background: rgba(226,89,31,0.06); }
+.dz-icon{ font-size: 28px; color: var(--ember-soft); }
+.dz-text strong{ color: var(--text); }
+.upload-actions{ display:flex; align-items:center; gap: 14px; margin-top: 14px; }
+.file-status{ font-family: var(--font-mono); font-size: 13px; color: var(--steel-soft); }
+.error-box{
+  margin-top: 14px; padding: 12px 14px; border-radius: var(--radius);
+  background: rgba(200,84,84,0.1); border: 1px solid rgba(200,84,84,0.4); color: #f0b9b9; font-size: 13.5px;
+}
+
+/* Buttons */
+.btn{
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13.5px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  color: var(--text);
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: transform 0.08s ease, border-color 0.15s, background 0.15s;
+}
+.btn:hover{ border-color: var(--ember-soft); }
+.btn:active{ transform: translateY(1px); }
+.btn:focus-visible{ outline: 2px solid var(--steel-soft); outline-offset: 2px; }
+.btn-sm{ padding: 6px 11px; font-size: 12.5px; }
+.btn-ghost{ background: transparent; }
+.btn-primary{
+  background: linear-gradient(180deg, var(--ember-soft), var(--ember));
+  border-color: var(--ember);
+  color: #1a1006;
+  font-weight: 700;
+}
+.btn-primary:hover{ filter: brightness(1.08); }
+.btn:disabled{ opacity: 0.4; cursor: not-allowed; transform:none; filter:none; }
+
+/* Data strip */
+.data-strip{ display:flex; align-items:center; justify-content: space-between; padding: 14px 24px; }
+.data-strip strong{ font-family: var(--font-mono); }
+.data-strip .muted{ margin-left: 10px; }
+
+/* Checklist */
+.checklist-toolbar{ display:flex; align-items:center; gap: 12px; margin-bottom: 12px; }
+.stat-grid{
+  display:grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px;
+}
+.stat-chip{
+  display:flex; align-items:center; gap: 8px;
+  border:1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 10px; font-size: 13px; cursor:pointer; background: var(--panel-alt);
+  transition: border-color 0.15s, background 0.15s;
+}
+.stat-chip:hover{ border-color: var(--steel-soft); }
+.stat-chip input{ accent-color: var(--ember); }
+.stat-chip.checked{ border-color: var(--ember); background: rgba(226,89,31,0.08); }
+
+/* Tabs */
+.tabs{ display:flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin: -24px -24px 20px; padding: 0 24px; }
+.tab-btn{
+  font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.03em;
+  font-weight: 700; font-size: 15px;
+  background: none; border: none; color: var(--text-faint);
+  padding: 16px 6px; margin-right: 22px; cursor: pointer;
+  border-bottom: 3px solid transparent;
+}
+.tab-btn.active{ color: var(--text); border-bottom-color: var(--ember); }
+.tab-panel{ display:none; }
+.tab-panel.active{ display:block; }
+
+/* Filters */
+.filter-row{ display:flex; flex-wrap: wrap; align-items:center; gap: 18px; margin-bottom: 16px; }
+.field-label{ display:flex; flex-direction:column; gap:5px; font-size: 12.5px; color: var(--text-dim); font-weight:600; text-transform: uppercase; letter-spacing: 0.03em;}
+.field-label select, .field-label input[type="text"]{
+  font-family: var(--font-body); font-size: 14px; color: var(--text);
+  background: var(--bg-alt); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 10px; text-transform:none; letter-spacing:normal; font-weight:400;
+}
+.checkbox-field{ flex-direction: row; align-items:center; }
+.checkbox-field input{ accent-color: var(--ember); }
+
+.chip-row{ display:flex; flex-wrap:wrap; gap:6px; }
+.chip-row label{
+  display:flex; align-items:center; gap:5px;
+  border:1px solid var(--border); border-radius: 20px; padding: 5px 11px 5px 8px;
+  font-size: 12.5px; font-weight: 400; text-transform:none; letter-spacing:normal; color: var(--text-dim);
+  background: var(--panel-alt); cursor:pointer;
+}
+.chip-row input{ accent-color: var(--steel); }
+.chip-row label.checked{ border-color: var(--steel); color: var(--text); }
+
+/* Alloy config */
+.alloy-config{ background: var(--bg-alt); border:1px solid var(--border-soft); border-radius: var(--radius); padding: 18px; margin-bottom: 20px; }
+.alloy-config-row{ display:flex; flex-wrap:wrap; gap: 20px; margin-bottom: 14px; align-items: flex-start; }
+.alloy-config-row input[type="text"]{ min-width: 220px; }
+
+.material-picker{
+  max-height: 220px; overflow-y: auto; border: 1px solid var(--border-soft); border-radius: var(--radius);
+  background: var(--panel); padding: 6px;
+  display:grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: 2px;
+}
+.material-picker label{
+  display:flex; align-items:center; gap:7px; font-size: 12.5px; padding: 5px 7px; border-radius: 2px; cursor:pointer;
+}
+.material-picker label:hover{ background: var(--panel-alt); }
+.material-picker input{ accent-color: var(--steel); flex-shrink:0; }
+.material-picker .mp-type{ color: var(--text-faint); font-family: var(--font-mono); font-size: 10.5px; }
+
+.picker-toolbar{ display:flex; align-items:center; gap:12px; margin: 10px 0 16px; }
+
+.size-row{ align-items:center; }
+.size-row input[type="range"]{ accent-color: var(--ember); width: 220px; }
+.combo-estimate{ font-family: var(--font-mono); font-size: 13px; padding: 8px 12px; border-radius: var(--radius); border:1px solid var(--border); }
+.combo-estimate.ok{ color: var(--good); border-color: rgba(127,191,106,0.4); }
+.combo-estimate.over{ color: var(--bad); border-color: rgba(200,84,84,0.4); }
+
+/* Filter details blocks */
+.filter-details{
+  border: 1px solid var(--border-soft); border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 14px; background: var(--panel);
+}
+.filter-details summary{
+  cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--text);
+  list-style: none;
+}
+.filter-details summary::-webkit-details-marker{ display:none; }
+.filter-details summary::before{ content: "▸ "; color: var(--steel-soft); }
+.filter-details[open] summary::before{ content: "▾ "; }
+.filter-details > *:not(summary){ margin-top: 12px; }
+
+.eligibility-hint{ margin-bottom: 12px; font-family: var(--font-mono); font-size: 12.5px; }
+
+/* Progress bar */
+.progress-wrap{ margin-top: 14px; display:flex; flex-direction:column; gap:6px; }
+.progress-bar{
+  height: 8px; border-radius: 20px; background: var(--bg); border: 1px solid var(--border);
+  overflow: hidden;
+}
+.progress-fill{
+  height: 100%; width: 0%; background: linear-gradient(90deg, var(--ember), var(--gold));
+  transition: width 0.15s ease;
+}
+
+/* Maker tags on result cards */
+.maker-tag{
+  font-family: var(--font-mono); font-size: 11px; padding: 2px 7px; border-radius: 20px;
+  border: 1px solid var(--border); color: var(--text-dim);
+}
+.no-alloy-tag{
+  font-family: var(--font-mono); font-size: 11px; padding: 2px 7px; border-radius: 20px;
+  border: 1px solid var(--border-soft); color: var(--text-faint);
+}
+
+/* Results */
+.results-list{ display:flex; flex-direction:column; gap: 10px; margin-top: 6px; }
+.result-card{
+  border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--bg-alt);
+  padding: 14px 16px; display:flex; gap: 16px; align-items:flex-start;
+}
+.rank-badge{
+  flex-shrink:0; width: 42px; height: 46px;
+  display:flex; align-items:center; justify-content:center;
+  font-family: var(--font-mono); font-weight:600; font-size: 15px; color: var(--bg);
+  background: var(--gold);
+  clip-path: polygon(50% 0%, 100% 20%, 100% 100%, 0% 100%, 0% 20%);
+}
+.result-body{ flex:1; min-width:0; }
+.result-title{ display:flex; align-items:baseline; gap: 10px; flex-wrap:wrap; margin-bottom: 4px; }
+.result-title h3{ margin:0; font-size: 16px; font-family: var(--font-body); font-weight:700; }
+.result-meta{ font-family: var(--font-mono); font-size: 12px; color: var(--text-faint); }
+.composition{ font-size: 12.5px; color: var(--text-dim); margin-bottom: 8px; }
+.composition .primary-tag{ color: var(--steel-soft); font-weight:600; }
+.stat-values{ display:flex; flex-wrap:wrap; gap: 6px 14px; font-family: var(--font-mono); font-size: 12.5px; }
+.stat-values span b{ color: var(--text); }
+.avg-rank{ font-family: var(--font-mono); font-size: 12px; color: var(--text-faint); margin-top: 8px; }
+.synergy-tag{ font-family: var(--font-mono); font-size: 12px; padding: 2px 7px; border-radius: 20px; border:1px solid var(--border); }
+.synergy-tag.pos{ color: var(--good); border-color: rgba(127,191,106,0.4); }
+.synergy-tag.neg{ color: var(--bad); border-color: rgba(200,84,84,0.4); }
+
+.pager{ display:flex; align-items:center; justify-content:center; gap: 14px; margin-top: 18px; font-family: var(--font-mono); font-size: 13px; }
+.pager button{ font-family: var(--font-body); }
+
+/* Footer */
+.site-footer{ border-top: 1px solid var(--border-soft); padding: 28px 0 50px; color: var(--text-dim); font-size: 13.5px; }
+.site-footer summary{ cursor:pointer; font-weight:600; color: var(--text); margin-bottom: 10px; }
+.explainer p{ max-width: 68ch; margin: 0 0 10px; }
+.explainer code{ font-family: var(--font-mono); background: var(--panel); padding: 1px 5px; border-radius: 2px; }
+.foot-note{ margin-top: 16px; color: var(--text-faint); }
+
+@media (max-width: 640px){
+  .brand h1{ font-size: 38px; }
+  .header-inner{ flex-direction: column; align-items:flex-start; }
+  .furnace-signature{ display:none; }
+  .tabs{ overflow-x:auto; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  *{ transition: none !important; scroll-behavior: auto !important; }
+}
+
+</style>
 </head>
 <body>
 
+
+<div id="fatalErrorBanner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:9999; background:#c85454; color:#fff; padding:12px 18px; font-family:monospace; font-size:13px; white-space:pre-wrap;"></div>
 <div class="grain"></div>
 
 <header class="site-header">
@@ -193,7 +520,1033 @@
   </div>
 </footer>
 
-<script src="sample-data.js"></script>
-<script src="app.js"></script>
+<script>
+(function(){
+  try {
+// Bundled sample data (used only for the "Try it with sample data" button).
+// The app itself is fully generic and works with any export following the same column format.
+const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\tDurability\tArmor Durability\tRepair Efficiency\tRepair Bonus\tEnchantment Value\tCharging Value\tRarity\tHarvest Tier\tHarvest Speed\tBlock Reach\tAttack Damage\tAttack Speed\tAttack Reach\tMagic Damage\tRanged Damage\tDraw Speed\tProjectile Speed\tProjectile Accuracy\tArmor\tArmor Toughness\tKnockback Resistance\tMagic Armor\t\nmod/silentgear\tString\tBinding\tsilentgear:string\t\tOrganic, Fiber, Basic\t\tFlexible I\t\t\t+5%\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tFluffy String\tBinding\tsilentgear:fluffy_string\t\tOrganic, Fiber, Basic\t\tFlexible III\t\t+5%\t\t\t\t\t\t\t-5%\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tVine\tBinding\tsilentgear:vine\t\tOrganic, Basic\t\t\t\t\t+3%\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tFine Silk\tBinding\tsilentgear:fine_silk\t\tOrganic, Fiber, Basic\t\tLucky I, Flexible IV\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+2\t\nmod/silentgear\tSinew\tBinding\tsilentgear:sinew\t\tOrganic, Fiber, Basic\t\tFlexible IV\t\t\t-5%\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tFlax\tBinding\tsilentgear:flax\t\tOrganic, Fiber, Basic\t\tFlexible III\t\t+5%\t\t\t\t\t\t\t+5%\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tExample\tBinding\tsilentgear:example\t\tIntangible\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tGolden (Gold)\tCoating\tsilentgear:gold\t\tMetal, Intermediate\t\tBrilliant, Soft III*\tx0.9\tx0.9\t\t\t\t\t+10\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tNetherite\tCoating\tsilentgear:netherite\t\tMetal, Endgame\t\tFireproof\t+2, x1.3\tx1.12\t\t\t+5\t\t\tnetherite (4)\tx1.13\t\tx1.33\t\t\tx1.33\tx1.33\t\t\t\t\t+4\t+1\t\t\nmod/silentgear\tPrismarine\tCoating\tsilentgear:prismarine\t\tOrganic, Advanced, Gem\t\tAquatic V*, Aquatic III*\tx1.08\tx1.13\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+1\t+0.25\t\t\nmod/silentgear\tBlaze Gold\tCoating\tsilentgear:blaze_gold\t\tMetal, Advanced\t\tBrilliant, Soft II*\tx0.95\tx0.95\t\t\t\t\t+20\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tExample\tCoating\tsilentgear:example\t\tIntangible\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tString\tCord\tsilentgear:string\t\tOrganic, Fiber, Basic\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+10%\t\t\t\t\t\t\t\nmod/silentgear\tFluffy String\tCord\tsilentgear:fluffy_string\t\tOrganic, Fiber, Basic\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+5%\t-5%\t\t\t\t\t\t\t\nmod/silentgear\tVine\tCord\tsilentgear:vine\t\tOrganic, Basic\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t-10%\t\t\t\t\t\t\t\t\nmod/silentgear\tFine Silk\tCord\tsilentgear:fine_silk\t\tOrganic, Fiber, Basic\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+7%\t\t\t\t\t\t\t\t\nmod/silentgear\tSinew\tCord\tsilentgear:sinew\t\tOrganic, Fiber, Basic\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+20%\t\t\t\t\t\t\t\t\nmod/silentgear\tFlax\tCord\tsilentgear:flax\t\tOrganic, Fiber, Basic\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t-10%\t+20%\t\t\t\t\t\t\t\nmod/silentgear\tExample\tCord\tsilentgear:example\t\tIntangible\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tPaper\tFletching\tsilentgear:paper\t\tOrganic, Sheet, Basic\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t1.1x\t90%\t\t\t\t\t\nmod/silentgear\tFeather\tFletching\tsilentgear:feather\t\tOrganic, Basic\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t0.9x\t110%\t\t\t\t\t\nmod/silentgear\tLeaf (Leaves)\tFletching\tsilentgear:leaves\t\tOrganic, Basic\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t1.1x\t90%\t\t\t\t\t\nmod/silentgear\tExample\tFletching\tsilentgear:example\t\tIntangible\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tPink Wool\tGrip\tsilentgear:wool/pink\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tMagenta Wool\tGrip\tsilentgear:wool/magenta\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tLeather\tGrip\tsilentgear:leather\t\tOrganic, Basic, Cloth\t\tFlexible III\t\t\t+10%\t\t\t\t\t\t+15%\t\t\t+0.15\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tLight Gray Wool\tGrip\tsilentgear:wool/light_gray\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tLight Blue Wool\tGrip\tsilentgear:wool/light_blue\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBlue Wool\tGrip\tsilentgear:wool/blue\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tGray Wool\tGrip\tsilentgear:wool/gray\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tWool\tGrip\tsilentgear:wool\t\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tPurple Wool\tGrip\tsilentgear:wool/purple\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tRed Wool\tGrip\tsilentgear:wool/red\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tFine Silk Cloth\tGrip\tsilentgear:fine_silk_cloth\t\tOrganic, Intermediate, Cloth\t\tAccelerate I*\t\t\t+10%\t\t\t\t\t\t+15%\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tOrange Wool\tGrip\tsilentgear:wool/orange\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tLime Wool\tGrip\tsilentgear:wool/lime\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tYellow Wool\tGrip\tsilentgear:wool/yellow\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tGreen Wool\tGrip\tsilentgear:wool/green\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tWhite Wool\tGrip\tsilentgear:wool/white\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBrown Wool\tGrip\tsilentgear:wool/brown\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tPhantom Membrane\tGrip\tsilentgear:phantom_membrane\t\tOrganic, Intermediate, Cloth\t\tAncient II*\t\t\t+15%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBlack Wool\tGrip\tsilentgear:wool/black\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tExample\tGrip\tsilentgear:example\t\tIntangible\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tCyan Wool\tGrip\tsilentgear:wool/cyan\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t+20%\t\t\t\t\t\t+10%\t\t\t+0.2\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tLapis Lazuli\tJewelry Setting\tsilentgear:lapis_lazuli\t\tIntermediate, Gem\t\tLucky III*\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tQuartz\tJewelry Setting\tsilentgear:quartz\t\tIntermediate, Gem\t\tMighty II*\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tDimerald\tJewelry Setting\tsilentgear:dimerald\t\tAdvanced, Gem\t\tKitty Vision*\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tAmethyst\tJewelry Setting\tsilentgear:amethyst\t\tIntermediate, Gem\t\tCursed IV\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tDiamond\tJewelry Setting\tsilentgear:diamond\t\tAdvanced, Gem\t\tBastion I*\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tFlint\tJewelry Setting\tsilentgear:flint\t\tBasic, Rock\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tEmerald\tJewelry Setting\tsilentgear:emerald\t\tAdvanced, Gem\t\tReach II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tPrismarine\tJewelry Setting\tsilentgear:prismarine\t\tOrganic, Advanced, Gem\t\tSwift Swim III*\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tExample\tJewelry Setting\tsilentgear:example\t\tIntangible\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tPink Wool\tLining\tsilentgear:wool/pink\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tMagenta Wool\tLining\tsilentgear:wool/magenta\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tLeather\tLining\tsilentgear:leather\t\tOrganic, Basic, Cloth\t\tFlexible IV\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tLight Gray Wool\tLining\tsilentgear:wool/light_gray\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tLight Blue Wool\tLining\tsilentgear:wool/light_blue\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tBlue Wool\tLining\tsilentgear:wool/blue\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tSlime\tLining\tsilentgear:slime\t\tOrganic, Slime, Intermediate\t\tBounce*\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.5\t\t\t\nmod/silentgear\tGray Wool\tLining\tsilentgear:wool/gray\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tWool\tLining\tsilentgear:wool\t\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tPurple Wool\tLining\tsilentgear:wool/purple\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tRed Wool\tLining\tsilentgear:wool/red\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tFine Silk Cloth\tLining\tsilentgear:fine_silk_cloth\t\tOrganic, Intermediate, Cloth\t\tFlexible IV\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+2\t\nmod/silentgear\tOrange Wool\tLining\tsilentgear:wool/orange\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tLime Wool\tLining\tsilentgear:wool/lime\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tYellow Wool\tLining\tsilentgear:wool/yellow\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tGreen Wool\tLining\tsilentgear:wool/green\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tWhite Wool\tLining\tsilentgear:wool/white\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tBrown Wool\tLining\tsilentgear:wool/brown\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tPhantom Membrane\tLining\tsilentgear:phantom_membrane\t\tOrganic, Intermediate, Cloth\t\tLight II*, Flexible III\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBlack Wool\tLining\tsilentgear:wool/black\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tExample\tLining\tsilentgear:example\t\tIntangible\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tCyan Wool\tLining\tsilentgear:wool/cyan\tWool\tOrganic, Basic, Cloth\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t+0.1\t\t\nmod/silentgear\tBamboo\tMain\tsilentgear:bamboo\t\tOrganic, Wood, Basic\t\tFlammable, Flexible II\t65\t9x\t\t25%\t15\t0.7\t4\tbamboo (0)\t2\t\t0\t0\t\t\t0x\t0x\t1x\t90%\t7\t\t\t2\t\nmod/silentgear\tGolden (Gold)\tMain\tsilentgear:gold\t\tMetal, Intermediate\t\tBrilliant*, Malleable I, Soft III*\t32\t7x\t\t\t22\t1.2\t50\tgold (1)\t12\t\t0\t0\t\t4\t0x\t0.3x\t1.1x\t100%\t11\t\t\t8\t\nmod/silentgear\tSandstone\tMain\tsilentgear:sandstone\t\tBasic, Rock\t\t\t117\t6x\t\t-10%\t7\t0.7\t7\tsandstone (1)\t4\t\t1\t0.1\t\t\t0x\t-0.1x\t1x\t80%\t5\t\t\t\t\nmod/silentgear\tRedstone\tMain\tsilentgear:redstone\t\tMetal, Dust, Intermediate\tYes\tImperial III*\t\t\t\t\t-10%\t+10%\t30\t\t12\t\t4\t\t\t\t2x\t\t\t\t\t\t\t\t\nmod/silentgear\tLapis Lazuli\tMain\tsilentgear:lapis_lazuli\t\tIntermediate, Gem\t\t\t200\t13x\t\t\t17\t1.3\t30\tlapis_lazuli (1.5)\t5\t\t2\t0\t\t3\t0x\t-0.1x\t1x\t80%\t15\t\t\t10\t\nmod/silentgear\tQuartz\tMain\tsilentgear:quartz\t\tIntermediate, Gem\t\tCrushing III, Jagged II*\t330\t13x\t\t\t10\t1.2\t40\tquartz (2)\t7\t\t2\t0.1\t\t\t0x\t0.1x\t1x\t100%\t14\t\t\t4\t\nmod/silentgear\tShulker Shell (Crushed Shulker Shell)\tMain\tsilentgear:crushed_shulker_shell\t\tDust, Endgame, Rock\tYes\tEroded IV*\t2500\t50x\t\t\t10\t-0.15\t91\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tPaper\tMain\tsilentgear:paper\t\tOrganic, Sheet, Basic\t\tFlammable, Rustic III\t0\t2x\t\t\t11\t1\t3\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t\t\nmod/silentgear\tPink Wool\tMain\tsilentgear:wool/pink\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tUnknown Sheet Metal (Sheet Metal)\tMain\tsilentgear:sheet_metal\t\tSheet\t\t\tx0\tx0.6\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\tx0.5\tx0.5\t\t\t\nmod/silentgear\tYellow Terracotta\tMain\tsilentgear:terracotta/yellow\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tWarped Wood\tMain\tsilentgear:wood/warped\tWooden\tOrganic, Wood\t\tJagged I*\t59\t8x\t\t25%\t15\t0.6\t1\twood (0)\t2\t\t0\t0\t\t\t0x\t0x\t1x\t90%\t7\t\t\t2\t\nmod/silentgear\tDimerald\tMain\tsilentgear:dimerald\t\tAdvanced, Gem\t\tBrittle I, Gold Digger II*\t1776\t36x\t\t\t12\t0.7\t80\tdimerald (3)\t9\t\t3\t0.1\t\t3\t3x\t0.1x\t1x\t120%\t22\t10\t\t10\t\nmod/silentgear\tMagenta Wool\tMain\tsilentgear:wool/magenta\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tLeather\tMain\tsilentgear:leather\t\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t5x\t\t\t15\t0.8\t11\t\t\t\t\t\t\t\t\t\t\t\t7\t\t\t8\t\nmod/silentgear\tCrimson Wood\tMain\tsilentgear:wood/crimson\tWooden\tOrganic, Wood\t\tJagged I*\t59\t8x\t\t25%\t15\t0.6\t1\twood (0)\t2\t\t0\t0\t\t\t0x\t0x\t1x\t90%\t7\t\t\t2\t\nmod/silentgear\tAcacia Wood\tMain\tsilentgear:wood/acacia\tWooden\tOrganic, Wood\t\tFlammable, Jagged I*\t59\t8x\t\t25%\t15\t0.6\t1\twood (0)\t2\t\t0\t0\t\t\t0x\t0x\t1x\t90%\t7\t\t\t2\t\nmod/silentgear\tLight Gray Wool\tMain\tsilentgear:wool/light_gray\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tBasalt\tMain\tsilentgear:basalt\t\tBasic, Rock\t\tBrittle II, Chipping III\t137\t4x\t\t\t6\t0.7\t7\tbasalt (1)\t4\t\t1\t0\t\t\t0x\t-0.1x\t1x\t80%\t6\t\t\t\t\nmod/silentgear\tCyan Terracotta\tMain\tsilentgear:terracotta/cyan\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tLight Blue Wool\tMain\tsilentgear:wool/light_blue\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tBlackstone\tMain\tsilentgear:blackstone\t\tBasic, Rock\t\tBrittle I, Jagged II*, Hard II*\t151\t5x\t\t\t4\t0.6\t9\tblackstone (1)\t4\t\t1\t0\t\t\t0x\t-0.2x\t1x\t80%\t5\t\t\t\t\nmod/silentgear\tBlue Wool\tMain\tsilentgear:wool/blue\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tObsidian\tMain\tsilentgear:obsidian\t\tAdvanced, Rock\t\tJagged III*, Crushing II\t1024\t13x\t\t-25%\t7\t0.6\t10\tobsidian (1)\t6\t\t3\t-0.4\t\t2\t0x\t-0.4x\t0.7x\t70%\t20\t4\t\t8\t\nmod/silentgear\tPurple Terracotta\tMain\tsilentgear:terracotta/purple\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tGray Wool\tMain\tsilentgear:wool/gray\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tAmethyst\tMain\tsilentgear:amethyst\t\tIntermediate, Gem\t\tRenew I*\t210\t10x\t\t\t16\t1.3\t35\tamethyst (1.5)\t6\t\t1\t0\t\t3\t1x\t0x\t1x\t100%\t15\t\t\t10\t\nmod/silentgear\tOrange Terracotta\tMain\tsilentgear:terracotta/orange\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tAzure Electrum\tMain\tsilentgear:azure_electrum\t\tMetal, Endgame\t\tMalleable III, Accelerate III*, Light IV*\t1259\t61x\t\t50%\t37\t1.5\t109\tazure_electrum (4)\t29\t\t7\t0\t\t11\t3x\t0x\t2x\t150%\t19\t8\t\t19\t\nmod/silentgear\tWooden (Wood)\tMain\tsilentgear:wood\t\tOrganic, Wood\t\tFlammable, Jagged I*\t59\t8x\t\t25%\t15\t0.6\t1\twood (0)\t2\t\t0\t0\t\t\t0x\t0x\t1x\t90%\t7\t\t\t2\t\nmod/silentgear\tFeather\tMain\tsilentgear:feather\t\tOrganic, Basic\t\ttrait.silentgear.flutter I\t0\t2x\t\t\t9\t1.1\t1\t\t\t\t\t\t\t\t\t\t\t\t3\t\t\t\t\nmod/silentgear\tWool\tMain\tsilentgear:wool\t\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tPurple Wool\tMain\tsilentgear:wool/purple\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tGlowstone\tMain\tsilentgear:glowstone\t\tDust, Intermediate, Gem\tYes\tRenew III\t\t\t\t\t\t+15%\t40\t\t15\t\t3\t0.4\t\t\t3x\t\t\t\t\t\t\t\t\nmod/silentgear\tStone\tMain\tsilentgear:stone\t\tBasic, Rock\t\tAncient I*\t131\t5x\t\t\t5\t0.5\t4\tstone (1)\t4\t\t1\t0\t\t\t0x\t-0.2x\t1x\t80%\t5\t\t\t\t\nmod/silentgear\tTyrian Steel\tMain\tsilentgear:tyrian_steel\t\tMetal, Endgame\t\tSturdy III*, Void Ward*\t3652\t81x\t\t\t16\t1.1\t100\ttyrian_steel (4)\t18\t\t8\t0\t\t6\t4x\t0x\t1.1x\t110%\t25\t12\t\t12\t\nmod/silentgear\tOak Wood\tMain\tsilentgear:wood/oak\tWooden\tOrganic, Wood\t\tFlammable, Jagged I*\t59\t8x\t\t25%\t15\t0.6\t1\twood (0)\t2\t\t0\t0\t\t\t0x\t0x\t1x\t90%\t7\t\t\t2\t\nmod/silentgear\tNetherwood\tMain\tsilentgear:netherwood\tWooden\tOrganic, Wood\t\tFlexible III, Jagged II*\t72\t12x\t50%\t10%\t13\t0.7\t4\tnetherwood (0)\t2\t\t0\t0.2\t\t\t0x\t0x\t1x\t80%\t8\t\t\t6\t\nmod/silentgear\tGray Terracotta\tMain\tsilentgear:terracotta/gray\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tBrown Terracotta\tMain\tsilentgear:terracotta/brown\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tBlue Terracotta\tMain\tsilentgear:terracotta/blue\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tRed Wool\tMain\tsilentgear:wool/red\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tPink Terracotta\tMain\tsilentgear:terracotta/pink\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tCrimson Iron\tMain\tsilentgear:crimson_iron\t\tMetal, Advanced\t\tMalleable III, Hard II*, Heat-Resistant IV*\t420\t27x\t\t50%\t14\t0.7\t31\tcrimson_iron (3)\t10\t\t3\t-0.1\t\t3\t2x\t-0.1x\t1x\t110%\t18\t2\t\t6\t\nmod/silentgear\tGreen Terracotta\tMain\tsilentgear:terracotta/green\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tNetherrack\tMain\tsilentgear:netherrack\t\tOrganic, Basic, Rock\t\tEroded III*, Flexible II\t142\t5x\t\t-20%\t8\t0.8\t11\tnetherrack (1)\t5\t\t0.5\t0\t\t0.5\t0.5x\t0.1x\t0.8x\t100%\t8\t\t\t4\t\nmod/silentgear\tSpruce Wood\tMain\tsilentgear:wood/spruce\tWooden\tOrganic, Wood\t\tFlammable, Jagged I*\t59\t8x\t\t25%\t15\t0.6\t1\twood (0)\t2\t\t0\t0\t\t\t0x\t0x\t1x\t90%\t7\t\t\t2\t\nmod/silentgear\tWhite Terracotta\tMain\tsilentgear:terracotta/white\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tDiamond\tMain\tsilentgear:diamond\t\tAdvanced, Gem\t\tBrittle II, Lustrous I*\t1561\t33x\t\t\t10\t0.8\t70\tdiamond (3)\t8\t\t3\t0\t\t1\t2x\t-0.2x\t0.9x\t110%\t20\t8\t\t4\t\nmod/silentgear\tHigh-Carbon Steel\tMain\tsilentgear:high_carbon_steel\t\tMetal, Advanced\t\tMalleable III\t420\t24x\t\t5%\t11\t0.8\t40\thigh_carbon_steel (2)\t6\t\t4\t-0.2\t\t1\t2x\t-0.2x\t\t\t20\t2\t\t6\t\nmod/silentgear\tFine Silk Cloth\tMain\tsilentgear:fine_silk_cloth\t\tOrganic, Intermediate, Cloth\t\tSnow Walker*\t0\t14x\t\t\t14\t0.9\t40\t\t\t\t\t\t\t\t\t\t\t\t6\t\t\t14\t\nmod/silentgear\tTerracotta\tMain\tsilentgear:terracotta\t\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tLight Blue Terracotta\tMain\tsilentgear:terracotta/light_blue\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tRed Terracotta\tMain\tsilentgear:terracotta/red\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tLight Gray Terracotta\tMain\tsilentgear:terracotta/light_gray\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tBone\tMain\tsilentgear:bone\t\tOrganic, Basic\t\tChipping II\t108\t4x\t\t\t5\t0.9\t8\tbone (1)\t4\t\t2\t0.1\t\t1\t1x\t0x\t0.9x\t100%\t5\t\t\t1\t\nmod/silentgear\tIron\tMain\tsilentgear:iron\t\tMetal, Intermediate\t\tMalleable III\t250\t15x\t\t\t14\t0.7\t20\tiron (2)\t6\t\t2\t0\t\t1\t1x\t0.1x\t1x\t110%\t15\t\t\t6\t\nmod/silentgear\tCrimson Steel\tMain\tsilentgear:crimson_steel\t\tMetal, Endgame\t\tMalleable V, Hard III*, Flame Ward*\t2400\t42x\t\t50%\t19\t0.9\t83\tcrimson_steel (4)\t15\t\t6\t-0.1\t\t6\t3x\t-0.1x\t1x\t130%\t22\t10\t\t10\t\nmod/silentgear\tBirch Wood\tMain\tsilentgear:wood/birch\tWooden\tOrganic, Wood\t\tFlammable, Jagged I*\t59\t8x\t\t25%\t15\t0.6\t1\twood (0)\t2\t\t0\t0\t\t\t0x\t0x\t1x\t90%\t7\t\t\t2\t\nmod/silentgear\tFlint\tMain\tsilentgear:flint\t\tBasic, Rock\t\tJagged III*\t124\t4x\t\t\t3\t0.8\t6\tflint (1)\t5\t\t2\t-0.1\t\t\t1x\t-0.3x\t1x\t100%\t4\t\t\t\t\nmod/silentgear\tRed Sandstone\tMain\tsilentgear:sandstone/red\tSandstone\tBasic, Rock\t\t\t117\t6x\t\t-10%\t7\t0.7\t7\tsandstone (1)\t4\t\t1\t0.1\t\t\t0x\t-0.1x\t1x\t80%\t5\t\t\t\t\nmod/silentgear\tDark Oak Wood\tMain\tsilentgear:wood/dark_oak\tWooden\tOrganic, Wood\t\tFlammable, Jagged I*\t59\t8x\t\t25%\t15\t0.6\t1\twood (0)\t2\t\t0\t0\t\t\t0x\t0x\t1x\t90%\t7\t\t\t2\t\nmod/silentgear\tBarrier\tMain\tsilentgear:barrier\t\tIntangible\t\tAdamant V, Holy V*\t1337\t84x\t\t-100%\t5\t0.5\t111\twood (0)\t5\t\t1\t0\t\t1\t1x\t0x\t\t\t20\t10\t\t10\t\nmod/silentgear\tJungle Wood\tMain\tsilentgear:wood/jungle\tWooden\tOrganic, Wood\t\tFlammable, Jagged I*\t59\t8x\t\t25%\t15\t0.6\t1\twood (0)\t2\t\t0\t0\t\t\t0x\t0x\t1x\t90%\t7\t\t\t2\t\nmod/silentgear\tOrange Wool\tMain\tsilentgear:wool/orange\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tEmerald\tMain\tsilentgear:emerald\t\tAdvanced, Gem\t\tBrittle I, Synergistic II\t1080\t24x\t\t25%\t16\t1\t40\temerald (2)\t10\t\t2\t0\t\t2\t1x\t-0.1x\t1.1x\t90%\t16\t4\t\t6\t\nmod/silentgear\tLime Wool\tMain\tsilentgear:wool/lime\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tYellow Wool\tMain\tsilentgear:wool/yellow\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tGreen Wool\tMain\tsilentgear:wool/green\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tBronze\tMain\tsilentgear:bronze\t\tMetal, Intermediate\t\tSharp I*\t300\t13x\t\t15%\t12\t1.1\t15\tbronze (2)\t6\t\t2.5\t0.2\t\t1\t2x\t-0.2x\t\t\t15\t1\t\t6\t\nmod/silentgear\tCopper\tMain\tsilentgear:copper\t\tMetal, Basic\t\tSoft I*\t151\t12x\t\t\t15\t1.3\t12\tcopper (1.5)\t5\t\t1.5\t0.1\t\t1\t0.1x\t0x\t\t\t10\t\t\t8\t\nmod/silentgear\tWhite Wool\tMain\tsilentgear:wool/white\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tTurtle\tMain\tsilentgear:turtle\t\tOrganic, Intermediate\t\tTurtle*\t0\t\t\t\t9\t0.5\t20\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t4\t\nmod/silentgear\tEnd Stone\tMain\tsilentgear:end_stone\t\tBasic, Rock\t\tJagged III*, Ancient II*\t1164\t15x\t\t-20%\t10\t0.9\t32\tend_stone (1)\t7\t\t2\t0.1\t\t3\t0x\t0x\t1x\t80%\t15\t1\t\t6\t\nmod/silentgear\tDiorite\tMain\tsilentgear:stone/diorite\tStone\tBasic, Rock\t\tAncient I*\t131\t5x\t\t\t5\t0.5\t4\tstone (1)\t4\t\t1\t0\t\t\t0x\t-0.2x\t1x\t80%\t5\t\t\t\t\nmod/silentgear\tLime Terracotta\tMain\tsilentgear:terracotta/lime\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tBlack Terracotta\tMain\tsilentgear:terracotta/black\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tBlaze Gold\tMain\tsilentgear:blaze_gold\t\tMetal, Advanced\t\tBrilliant*, Greedy III, Malleable III\t69\t9x\t\t\t24\t1.2\t45\tblaze_gold (2)\t15\t\t2\t0.1\t\t5\t1x\t0.2x\t1.2x\t90%\t13\t1\t\t10\t\nmod/silentgear\tBrown Wool\tMain\tsilentgear:wool/brown\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tPhantom Membrane\tMain\tsilentgear:phantom_membrane\t\tOrganic, Intermediate, Cloth\t\tRenew II*\t0\t12x\t\t\t10\t0.7\t35\t\t\t\t\t\t\t\t\t\t\t\t6\t\t\t8\t\nmod/silentgear\tGranite\tMain\tsilentgear:stone/granite\tStone\tBasic, Rock\t\tAncient I*\t131\t5x\t\t\t5\t0.5\t4\tstone (1)\t4\t\t1\t0\t\t\t0x\t-0.2x\t1x\t80%\t5\t\t\t\t\nmod/silentgear\tBlack Wool\tMain\tsilentgear:wool/black\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tLeaf (Leaves)\tMain\tsilentgear:leaves\t\tOrganic, Basic\t\tFlammable, Light I*\t0\t2x\t\t\t12\t1.1\t1\t\t\t\t\t\t\t\t\t\t\t\t3\t\t\t\t\nmod/silentgear\tAndesite\tMain\tsilentgear:stone/andesite\tStone\tBasic, Rock\t\tAncient I*\t131\t5x\t\t\t5\t0.5\t4\tstone (1)\t4\t\t1\t0\t\t\t0x\t-0.2x\t1x\t80%\t5\t\t\t\t\nmod/silentgear\tExample\tMain\tsilentgear:example\t\tIntangible\t\t\t100\t6x\t\t\t1\t1\t0\twood (0)\t1\t\t1\t0\t\t1\t0x\t0x\t\t\t4\t1\t\t1\t\nmod/silentgear\tAzure Silver\tMain\tsilentgear:azure_silver\t\tMetal, Advanced\t\tMalleable III, Soft II*, Moonwalker IV*\t197\t17x\t\t50%\t29\t1.4\t83\tazure_silver (3)\t19\t\t5\t0\t\t7\t2x\t0x\t1.2x\t110%\t13\t\t\t13\t\nmod/silentgear\tCyan Wool\tMain\tsilentgear:wool/cyan\tWool\tOrganic, Basic, Cloth\t\tSnow Walker*\t0\t4x\t\t\t7\t0.7\t7\t\t\t\t\t\t\t\t\t\t\t\t4\t\t\t4\t\nmod/silentgear\tMagenta Terracotta\tMain\tsilentgear:terracotta/magenta\tTerracotta\tBasic, Rock\t\tBrittle I, Chipping II, Rustic I\t165\t11x\t\t-10%\t9\t0.8\t7\tterracotta (1)\t4\t\t1.5\t0.2\t\t\t0x\t-0.2x\t1x\t90%\t9\t\t\t3\t\nmod/silentgear\tGolden (Gold)\tTip Upgrade\tsilentgear:gold\t\tMetal, Intermediate\t\tMalleable I, Soft III*\t+16\t+1\t\t\t\t\t+30\t\t+6\t\t\t\t\t+2\t\t+0.2\t\t\t\t\t\t\t\nmod/silentgear\tRedstone\tTip Upgrade\tsilentgear:redstone\t\tMetal, Dust, Intermediate\t\t\t\t\t\t\t\t\t+10\t\tx1.2\t\t+2\t+0.3\t\t\t+2\t\t\t\t\t\t\t\t\nmod/silentgear\tLapis Lazuli\tTip Upgrade\tsilentgear:lapis_lazuli\t\tIntermediate, Gem\t\tHoly I*, Lucky IV*\t\t\t\t\t\t\t\tlapis_lazuli (1.5)\tx0.9\t\t\t+0.3\t\t+2\t\t\t\t\t\t\t\t\t\nmod/silentgear\tQuartz\tTip Upgrade\tsilentgear:quartz\t\tIntermediate, Gem\t\tChipping I, Jagged III*\t+64\t+4\t\t\t\t\t+20\tquartz (2)\t+2\t\t+4\t\t\t\t+1.5\t\t\t\t\t\t\t\t\nmod/silentgear\tDimerald\tTip Upgrade\tsilentgear:dimerald\t\tAdvanced, Gem\t\tImperial II*\t+360\t\t\t\t\t\t+25\t\t+2\t\t+2\t\t\t+1\t+0.5\t\t\t\t\t\t\t\t\nmod/silentgear\tAmethyst\tTip Upgrade\tsilentgear:amethyst\t\tIntermediate, Gem\t\tSilky*\tx0.75\t\t\t\t\t\t\tamethyst (1.5)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tAzure Electrum\tTip Upgrade\tsilentgear:azure_electrum\t\tMetal, Endgame\t\tMalleable III\t+401\t+11\t\t\t\t\t\tazure_electrum (4)\t+5\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tGlowstone\tTip Upgrade\tsilentgear:glowstone\t\tDust, Intermediate, Gem\t\tRefractive*, Lustrous IV*\t\t\t\t\t\t\t+15\t\tx1.4\t\t+2\t\t\t+2\t\tx1.3\t\t\t\t\t\t\t\nmod/silentgear\tTyrian Steel\tTip Upgrade\tsilentgear:tyrian_steel\t\tMetal, Endgame\t\tImperial III*, Gold Digger III*\t+251\t\t\t\t\t\t+30\ttyrian_steel (4)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tCrimson Iron\tTip Upgrade\tsilentgear:crimson_iron\t\tMetal, Advanced\t\tFiery I*\t+224\t+8\t\t\t\t\t+10\tcrimson_iron (3)\t+2\t\t+2\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tDiamond\tTip Upgrade\tsilentgear:diamond\t\tAdvanced, Gem\t\tBrittle II, Lustrous II*\t+256\t+9\t\t\t\t\t+20\tdiamond (3)\t+2\t\t+2\t\t\t+1\t+0.5\t\t\t\t\t\t\t\t\nmod/silentgear\tIron\tTip Upgrade\tsilentgear:iron\t\tMetal, Intermediate\t\tMalleable II\t+128\t+4\t\t\t\t\t+8\tiron (2)\t+1\t\t+1\t\t\t\t\t+0.2\t\t\t\t\t\t\t\nmod/silentgear\tCrimson Steel\tTip Upgrade\tsilentgear:crimson_steel\t\tMetal, Endgame\t\tMagmatic*\t+448\t+16\t\t\t\t\t+20\tcrimson_steel (4)\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tEmerald\tTip Upgrade\tsilentgear:emerald\t\tAdvanced, Gem\t\tBrittle I, Synergistic II\t+512\t+12\t\t\t\t\t+20\temerald (2)\t+2\t\t+1\t\t\t+2\t+1\t\t\t\t\t\t\t\t\nmod/silentgear\tBronze\tTip Upgrade\tsilentgear:bronze\t\tMetal, Intermediate\t\tMalleable II\t+96\t+2\t\t\t\t\t+6\tbronze (2)\t+0.75\t\t+0.75\t+0.1\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tCopper\tTip Upgrade\tsilentgear:copper\t\tMetal, Basic\t\tMalleable I, trait.silentgear.dulling I\t+32\t+1\t\t\t\t\t+4\tcopper (1.5)\t+1\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBlaze Gold\tTip Upgrade\tsilentgear:blaze_gold\t\tMetal, Advanced\t\tSoft II*, Fiery II*\t+32\t+3\t\t\t\t\t+14\tblaze_gold (2)\t+4\t\t+1\t\t\t+1\t\t\t\t\t\t\t\t\t\nmod/silentgear\tExample\tTip Upgrade\tsilentgear:example\t\tIntangible\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tAzure Silver\tTip Upgrade\tsilentgear:azure_silver\t\tMetal, Advanced\t\tMalleable II, Fortunate III*\t+83\t+3\t\t\t\t\t+31\tazure_silver (3)\t+3\t\t\t+0.2\t\t+2\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBamboo\tTool Rod\tsilentgear:bamboo\t\tOrganic, Wood, Basic\t\tFlexible III\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tGolden (Gold)\tTool Rod\tsilentgear:gold\t\tMetal, Intermediate\t\tBending IV\t\t\t\t\t\t\t\t\t+3\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tSandstone\tTool Rod\tsilentgear:sandstone\t\tBasic, Rock\t\tBrittle I\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tQuartz\tTool Rod\tsilentgear:quartz\t\tIntermediate, Gem\t\tBrittle III\t\t\t\t\t\t\t\t\tx1.2\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tYellow Terracotta\tTool Rod\tsilentgear:terracotta/yellow\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tWarped Wood\tTool Rod\tsilentgear:wood/warped\tWooden\tOrganic, Wood\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tDimerald\tTool Rod\tsilentgear:dimerald\t\tAdvanced, Gem\t\tBrittle I*, Ancient III*\t\t\t\t\t\t\t\t\tx1.15\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tCrimson Wood\tTool Rod\tsilentgear:wood/crimson\tWooden\tOrganic, Wood\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tAcacia Wood\tTool Rod\tsilentgear:wood/acacia\tWooden\tOrganic, Wood\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBasalt\tTool Rod\tsilentgear:basalt\t\tBasic, Rock\t\tBrittle III, Chipping II\t\t\t\t\t\t\t\t\tx1.1\t\tx0.9\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tCyan Terracotta\tTool Rod\tsilentgear:terracotta/cyan\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBlackstone\tTool Rod\tsilentgear:blackstone\t\tBasic, Rock\t\tBrittle I, Jagged II*, Hard I*\t\t\t\t\t\t\t\t\tx0.9\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tObsidian\tTool Rod\tsilentgear:obsidian\t\tAdvanced, Rock\t\tBrittle II, Chipping III\t\t\t\t\t\t\t\t\tx0.9\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tPurple Terracotta\tTool Rod\tsilentgear:terracotta/purple\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tOrange Terracotta\tTool Rod\tsilentgear:terracotta/orange\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tAzure Electrum\tTool Rod\tsilentgear:azure_electrum\t\tMetal, Endgame\t\tFlexible II, Accelerate V*\t\t\t\t\t\t\t\t\t+3\t\t\t\t\t\t\t\tx2.5\t\t\t\t\t\t\nmod/silentgear\tBlaze Rod\tTool Rod\tsilentgear:blaze_rod\t\tMetal\t\tFlexible IV, Reach I\t\t\t\t\t\t\t\t\tx1.1\t\tx1.2\t\t\t\tx1.1\t\t\t\t\t\t\t\t\nmod/silentgear\tWooden (Wood)\tTool Rod\tsilentgear:wood\t\tOrganic, Wood\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tStone\tTool Rod\tsilentgear:stone\t\tBasic, Rock\t\tBrittle II, Crushing II\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tTyrian Steel\tTool Rod\tsilentgear:tyrian_steel\t\tMetal, Endgame\t\tSturdy IV*\t\t\t\t\t\t\t\t\t-2\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tOak Wood\tTool Rod\tsilentgear:wood/oak\tWooden\tOrganic, Wood\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tNetherwood\tTool Rod\tsilentgear:netherwood\tWooden\tOrganic, Wood\t\tFlexible I\t\t\t\t\t\t\t\t\t+1\t\t+0.5\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tGray Terracotta\tTool Rod\tsilentgear:terracotta/gray\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBrown Terracotta\tTool Rod\tsilentgear:terracotta/brown\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBlue Terracotta\tTool Rod\tsilentgear:terracotta/blue\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tPink Terracotta\tTool Rod\tsilentgear:terracotta/pink\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tCrimson Iron\tTool Rod\tsilentgear:crimson_iron\t\tMetal, Advanced\t\tFlexible III\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tGreen Terracotta\tTool Rod\tsilentgear:terracotta/green\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tNetherrack\tTool Rod\tsilentgear:netherrack\t\tOrganic, Basic, Rock\t\tEroded II*, Bending II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tSpruce Wood\tTool Rod\tsilentgear:wood/spruce\tWooden\tOrganic, Wood\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tWhite Terracotta\tTool Rod\tsilentgear:terracotta/white\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tDiamond\tTool Rod\tsilentgear:diamond\t\tAdvanced, Gem\t\tBrittle V*, Lustrous IV*\t\t\t\t\t\t\t\t\tx1.2\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tTerracotta\tTool Rod\tsilentgear:terracotta\t\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tLight Blue Terracotta\tTool Rod\tsilentgear:terracotta/light_blue\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tRed Terracotta\tTool Rod\tsilentgear:terracotta/red\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tLight Gray Terracotta\tTool Rod\tsilentgear:terracotta/light_gray\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBone\tTool Rod\tsilentgear:bone\t\tOrganic, Basic\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\tx1.2\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tIron\tTool Rod\tsilentgear:iron\t\tMetal, Intermediate\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tCrimson Steel\tTool Rod\tsilentgear:crimson_steel\t\tMetal, Endgame\t\tFlexible IV, Sturdy I*\t\t\t\t\t\t\t\t\tx1.2\t\t\t\t\t\t+1\t\t\t\t\t\t\t\t\nmod/silentgear\tBirch Wood\tTool Rod\tsilentgear:wood/birch\tWooden\tOrganic, Wood\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tFlint\tTool Rod\tsilentgear:flint\t\tBasic, Rock\t\tBrittle III, Jagged II*\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tRed Sandstone\tTool Rod\tsilentgear:sandstone/red\tSandstone\tBasic, Rock\t\tBrittle I\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tDark Oak Wood\tTool Rod\tsilentgear:wood/dark_oak\tWooden\tOrganic, Wood\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tJungle Wood\tTool Rod\tsilentgear:wood/jungle\tWooden\tOrganic, Wood\t\tFlexible II\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tEmerald\tTool Rod\tsilentgear:emerald\t\tAdvanced, Gem\t\tBrittle IV*\t\t\t\t\t\t\t\t\tx1.3\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tRough Wood\tTool Rod\tsilentgear:wood/rough\t\tOrganic, Wood\t\tCrude III, Bending V\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBronze\tTool Rod\tsilentgear:bronze\t\tMetal, Intermediate\t\tFlexible I\t\t\t\t\t\t\t\t\t\t\tx1.05\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tCopper\tTool Rod\tsilentgear:copper\t\tMetal, Basic\t\tBending III, Soft III*\t\t\t\t\t\t\t\t\tx1.2\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tEnd Stone\tTool Rod\tsilentgear:end_stone\t\tBasic, Rock\t\tMalleable I, Ancient IV*\t\t\t\t\t\t\t\t\t\t\t+1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBreeze Rod\tTool Rod\tsilentgear:breeze_rod\t\tMetal\t\tFlexible IV, Wind Blast*\t\t\t\t\t\t\t\t\tx1.2\t\tx1.1\t\t\t\tx1.2\t\t\t\t\t\t\t\t\nmod/silentgear\tDiorite\tTool Rod\tsilentgear:stone/diorite\tStone\tBasic, Rock\t\tBrittle II, Crushing II\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tLime Terracotta\tTool Rod\tsilentgear:terracotta/lime\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBlack Terracotta\tTool Rod\tsilentgear:terracotta/black\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tBlaze Gold\tTool Rod\tsilentgear:blaze_gold\t\tMetal, Advanced\t\tFlexible III\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tGranite\tTool Rod\tsilentgear:stone/granite\tStone\tBasic, Rock\t\tBrittle II, Crushing II\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tAndesite\tTool Rod\tsilentgear:stone/andesite\tStone\tBasic, Rock\t\tBrittle II, Crushing II\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tExample\tTool Rod\tsilentgear:example\t\tIntangible\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tAzure Silver\tTool Rod\tsilentgear:azure_silver\t\tMetal, Advanced\t\tBending II\tx0.8\t\t\t\t\t\t\t\t+3\t\t\t\t\t\t\t\t\t\t\t\t\t\t\nmod/silentgear\tEnd Rod\tTool Rod\tsilentgear:end_rod\t\tMetal\t\tFlexible IV, Sturdy II, Refractive*\t\t\t\t\t\t\t\t\tx1.2\t\tx1.1\t\t\t\tx1.1\t\t\t\t\t\t\t\t\nmod/silentgear\tMagenta Terracotta\tTool Rod\tsilentgear:terracotta/magenta\tTerracotta\tBasic, Rock\t\tBrittle II, Crushing I\t\t\t\t\t\t\t\t\t\t\tx1.1\t\t\t\t\t\t\t\t\t\t\t\t\n";
+
+/* ============================================================
+   Silent Gear Solved — material / alloy ranking calculator
+   Fully generic: works with any material export TSV that shares
+   the same column layout (header row + one row per material entry).
+   ============================================================ */
+
+(function () {
+  "use strict";
+
+  // ---- The checklist stats, in the order requested ----
+  const STAT_FIELDS = [
+    "Durability", "Armor Durability", "Repair Efficiency", "Repair Bonus",
+    "Enchantment Value", "Charging Value", "Rarity", "Harvest Tier",
+    "Harvest Speed", "Block Reach", "Attack Damage", "Attack Speed",
+    "Attack Reach", "Magic Damage", "Ranged Damage", "Draw Speed",
+    "Projectile Speed", "Projectile Accuracy", "Armor", "Armor Toughness",
+    "Knockback Resistance", "Magic Armor"
+  ];
+
+  const REQUIRED_HEADERS = ["Name", "Type", "ID"];
+  const RESULTS_PER_PAGE = 10;
+  const MAX_COMBOS = 350000; // safety/time budget for the alloy search
+  const CHUNK_SIZE = 4000;
+
+  const SYNERGY_MULTI = 1.1;
+  const MIN_SYN = 0.1;
+  const MAX_SYN = 2.0;
+  const RARITY_WEIGHT = 0.001;
+  const NO_SHARED_PENALTY = 0.2;
+  const SHARED_BONUS = 0.015;
+
+  // ---------------------------------------------------------
+  // Parsing
+  // ---------------------------------------------------------
+
+  function parseTSV(text) {
+    const lines = text.split(/\r\n|\n|\r/);
+    let headerIdx = 0;
+    while (headerIdx < lines.length && lines[headerIdx].trim() === "") headerIdx++;
+    if (headerIdx >= lines.length) throw new Error("File appears to be empty.");
+
+    const headers = lines[headerIdx].split("\t").map(h => h.trim());
+    const missing = REQUIRED_HEADERS.filter(h => !headers.includes(h));
+    if (missing.length) {
+      throw new Error(
+        "This doesn't look like a material export — missing column(s): " + missing.join(", ") +
+        ". Expected a header row with at least Name, Type, and ID."
+      );
+    }
+
+    const rows = [];
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      if (lines[i].trim() === "") continue;
+      rows.push(lines[i].split("\t"));
+    }
+    if (rows.length === 0) throw new Error("No material rows found below the header.");
+    return { headers, rows };
+  }
+
+  function parsePart(part) {
+    let m;
+    m = part.match(/^\^(-?\d*\.?\d+)$/);
+    if (m) return { op: "MAX", value: parseFloat(m[1]) };
+    m = part.match(/^[xX](-?\d*\.?\d+)$/);
+    if (m) return { op: "MULTIPLY_TOTAL", value: parseFloat(m[1]) - 1 };
+    m = part.match(/^(-?\d*\.?\d+)[xX]$/);
+    if (m) return { op: "AVERAGE", value: parseFloat(m[1]) };
+    m = part.match(/^([+-]\d*\.?\d+)%$/);
+    if (m) return { op: "MULTIPLY_BASE", value: parseFloat(m[1]) / 100 };
+    m = part.match(/^(\d*\.?\d+)%$/);
+    if (m) return { op: "AVERAGE", value: parseFloat(m[1]) / 100 };
+    m = part.match(/^([+-]\d*\.?\d+)$/);
+    if (m) return { op: "ADD", value: parseFloat(m[1]) };
+    m = part.match(/^(-?\d*\.?\d+)$/);
+    if (m) return { op: "AVERAGE", value: parseFloat(m[1]) };
+    m = part.match(/\(\s*(-?\d*\.?\d+)\s*\)/);
+    if (m) return { op: "AVERAGE", value: parseFloat(m[1]) };
+    return null;
+  }
+
+  function parseCellTokens(raw) {
+    if (!raw) return [];
+    const text = String(raw).trim();
+    if (!text) return [];
+    const parts = text.split(",").map(s => s.trim()).filter(Boolean);
+    const tokens = [];
+    for (const part of parts) {
+      const t = parsePart(part);
+      if (t) tokens.push(t);
+    }
+    return tokens;
+  }
+
+  function baseTraitName(full) {
+    let s = full.trim().replace(/\*+$/, "").trim();
+    s = s.replace(/\s+[IVXLCDM]+$/i, "").trim();
+    return s;
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  // ---------------------------------------------------------
+  // Compute engine (recreates NumberProperty.compute)
+  // ---------------------------------------------------------
+
+  function getPrimaryMod(tokens) {
+    let primaryMod = -1;
+    for (const t of tokens) if (primaryMod < 0) primaryMod = t.value;
+    return primaryMod > 0 ? primaryMod : 1;
+  }
+
+  function weightedAverage(tokens, primaryMod) {
+    let ret = 0, totalWeight = 0;
+    for (const t of tokens) {
+      const w = 1 + t.value / (1 + Math.abs(primaryMod));
+      totalWeight += w;
+      ret += t.value * w;
+    }
+    return totalWeight > 0 ? ret / totalWeight : 0;
+  }
+
+  function combineTokenLists(tokenLists) {
+    // tokenLists: array (in material/primary order) of token arrays
+    const modifiers = [];
+    for (const toks of tokenLists) if (toks) for (const t of toks) modifiers.push(t);
+    const avgTokens = modifiers.filter(t => t.op === "AVERAGE");
+    const primaryMod = getPrimaryMod(avgTokens);
+    let f0 = weightedAverage(avgTokens, primaryMod);
+    for (const t of modifiers) if (t.op === "MAX") f0 = Math.max(f0, t.value);
+    let f1 = f0;
+    for (const t of modifiers) if (t.op === "MULTIPLY_BASE") f1 += f0 * t.value;
+    for (const t of modifiers) if (t.op === "MULTIPLY_TOTAL") f1 *= (1 + t.value);
+    for (const t of modifiers) if (t.op === "ADD") f1 += t.value;
+    return f1;
+  }
+
+  // Single-row convenience (Tab 1, and for deriving a material's own rarity/tier)
+  function computeStatSingle(row, stat) {
+    return combineTokenLists([row.tokensByStat[stat]]);
+  }
+
+  // ---------------------------------------------------------
+  // Synergy engine (recreates SynergyUtils.getSynergy)
+  // ---------------------------------------------------------
+
+  function computeSynergy(materials) {
+    if (materials.length < 2) return 1;
+    const n = materials.length;
+
+    const uniqueKeys = new Set(materials.map(m => m.key));
+    const x = uniqueKeys.size;
+    const a = SYNERGY_MULTI;
+    let synergy = a * (x / (x + a)) + 1 / (1 + a);
+
+    const catCounts = new Map();
+    for (const m of materials) for (const c of m.categories) catCounts.set(c, (catCounts.get(c) || 0) + 1);
+
+    let sharedAll = false;
+    for (const v of catCounts.values()) { if (v === n) { sharedAll = true; break; } }
+    if (!sharedAll) synergy -= NO_SHARED_PENALTY;
+
+    for (const v of catCounts.values()) if (v > 1) synergy += SHARED_BONUS * (v / (n - x + 1));
+
+    const primaryRarity = materials[0].rarityValue;
+    let maxRarity = -Infinity;
+    for (const m of materials) if (m.rarityValue > maxRarity) maxRarity = m.rarityValue;
+
+    if (maxRarity > 0) {
+      const seen = new Set();
+      for (const m of materials) {
+        if (seen.has(m.key)) continue;
+        seen.add(m.key);
+        synergy -= RARITY_WEIGHT * Math.abs(primaryRarity - m.rarityValue);
+      }
+    }
+    return clamp(synergy, MIN_SYN, MAX_SYN);
+  }
+
+  // ---------------------------------------------------------
+  // Building rows, then grouping rows into MaterialDefs (by ID)
+  // ---------------------------------------------------------
+
+  function buildRows(headers, rawRows) {
+    const rows = [];
+    rawRows.forEach((cols, rowIdx) => {
+      const raw = {};
+      headers.forEach((h, i) => { raw[h] = (cols[i] || "").trim(); });
+
+      const id = raw["ID"] || "";
+      const type = raw["Type"] || "";
+      const name = raw["Name"] || "(unnamed)";
+      const categories = (raw["Categories"] || "").split(",").map(s => s.trim()).filter(Boolean);
+      const traits = raw["Traits"] || "";
+
+      const row = {
+        rowIdx, pack: raw["Pack"] || "", name, type, id, categories, traits,
+        additive: (raw["Additive"] || "").trim().toLowerCase() === "yes",
+        isExample: /:example$/i.test(id) || name.trim().toLowerCase() === "example",
+        key: (id || name) + "::" + type,
+        raw, tokensByStat: {}
+      };
+      for (const stat of STAT_FIELDS) row.tokensByStat[stat] = parseCellTokens(raw[stat]);
+      rows.push(row);
+    });
+    return rows;
+  }
+
+  function buildMaterialDefs(rows) {
+    const map = new Map();
+    for (const row of rows) {
+      if (row.isExample) continue;
+      if (!row.id) continue;
+      let def = map.get(row.id);
+      if (!def) {
+        def = { id: row.id, name: row.name, key: row.id, categorySet: new Set(), rows: {} };
+        map.set(row.id, def);
+      }
+      def.rows[row.type] = row;
+      row.categories.forEach(c => def.categorySet.add(c));
+      if (row.type === "Main") def.name = row.name; // prefer Main row's display name
+    }
+    const defs = Array.from(map.values());
+    defs.forEach(def => {
+      def.categories = Array.from(def.categorySet);
+      delete def.categorySet;
+      def.rarityValue = pickSingleStatValue(def, "Rarity");
+      def.harvestTierValue = pickSingleStatValue(def, "Harvest Tier");
+    });
+    return defs;
+  }
+
+  function typeOrderFor(def) {
+    const types = Object.keys(def.rows);
+    types.sort((a, b) => (a === "Main" ? -1 : b === "Main" ? 1 : a.localeCompare(b)));
+    return types;
+  }
+
+  function pickSingleStatValue(def, stat) {
+    for (const t of typeOrderFor(def)) {
+      const row = def.rows[t];
+      if (row.tokensByStat[stat] && row.tokensByStat[stat].length) return computeStatSingle(row, stat);
+    }
+    return 0;
+  }
+
+  // ---------------------------------------------------------
+  // Alloy validity (recreates AlloyMakerBlockEntity.canCompoundMaterials)
+  // ---------------------------------------------------------
+
+  function getSharedTypes(materials) {
+    let shared = null;
+    for (const m of materials) {
+      const types = new Set(Object.keys(m.rows));
+      shared = shared === null ? types : new Set(Array.from(shared).filter(t => types.has(t)));
+      if (shared.size === 0) return shared;
+    }
+    if (!shared) return new Set();
+    const result = new Set();
+    for (const t of shared) {
+      const allAdditive = materials.every(m => m.rows[t] && m.rows[t].additive);
+      if (!allAdditive) result.add(t);
+    }
+    return result;
+  }
+
+  function computeStatForCombo(materials, stat, sharedTypesArr) {
+    if (stat === "Harvest Tier") {
+      let mx = -Infinity;
+      for (const m of materials) if (m.harvestTierValue > mx) mx = m.harvestTierValue;
+      return mx === -Infinity ? 0 : mx;
+    }
+    const tokenLists = [];
+    for (const m of materials) {
+      for (const t of sharedTypesArr) {
+        const row = m.rows[t];
+        if (row) tokenLists.push(row.tokensByStat[stat]);
+      }
+    }
+    return combineTokenLists(tokenLists);
+  }
+
+  function extractComboTraits(materials, sharedTypesArr) {
+    const set = new Set();
+    for (const m of materials) {
+      for (const t of sharedTypesArr) {
+        const row = m.rows[t];
+        if (row && row.traits) {
+          row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
+            const b = baseTraitName(tr);
+            if (b) set.add(b);
+          });
+        }
+      }
+    }
+    return set;
+  }
+
+  function allUniqueBaseTraits(rows) {
+    const set = new Set();
+    rows.forEach(r => {
+      if (r.isExample || !r.traits) return;
+      r.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
+        const b = baseTraitName(tr);
+        if (b) set.add(b);
+      });
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }
+
+  // ---------------------------------------------------------
+  // Version / maker (Alloy Forge vs Super Mixer) rules
+  // ---------------------------------------------------------
+
+  function getVersionConfig(bucket, superMixerCheckbox) {
+    let alloyForgeSlots, superMixerBase, superMixerSlots;
+    if (bucket === "pre402") {
+      alloyForgeSlots = 4; superMixerBase = false; superMixerSlots = 0;
+    } else if (bucket === "402to414") {
+      alloyForgeSlots = 4; superMixerBase = true; superMixerSlots = 4;
+    } else {
+      alloyForgeSlots = 6; superMixerBase = true; superMixerSlots = 8;
+    }
+    return {
+      alloyForgeSlots,
+      superMixerAvailable: superMixerBase && !!superMixerCheckbox,
+      superMixerSlots
+    };
+  }
+
+  function maxFeasibleSlots(cfg) {
+    return Math.max(cfg.alloyForgeSlots, cfg.superMixerAvailable ? cfg.superMixerSlots : 0);
+  }
+
+  function getMakerTags(materials, cfg) {
+    const n = materials.length;
+    const allMetalOrDust = materials.every(m => m.categories.includes("Metal") || m.categories.includes("Dust"));
+    const canAlloyForge = allMetalOrDust && n <= cfg.alloyForgeSlots;
+    const canSuperMixer = cfg.superMixerAvailable && n <= cfg.superMixerSlots;
+    if (!canAlloyForge && !canSuperMixer) return null;
+    const tags = [];
+    if (canAlloyForge) tags.push("Alloy Forge / Metal Alloyer");
+    if (canSuperMixer) tags.push("Super Mixer");
+    return tags;
+  }
+
+  // ---------------------------------------------------------
+  // Combination generation (order-reduced: only the primary
+  // slot's identity matters; everything after it is unordered)
+  // ---------------------------------------------------------
+
+  function nMultichoose(n, r) {
+    if (r < 0 || n <= 0) return r === 0 ? 1 : 0;
+    const N = n + r - 1;
+    const R = Math.min(r, N - r);
+    let result = 1;
+    for (let i = 0; i < R; i++) result = (result * (N - i)) / (i + 1);
+    return result;
+  }
+
+  function* multisetCombos(n, r) {
+    if (r === 0) { yield []; return; }
+    if (n === 0) return;
+    const idx = new Array(r).fill(0);
+    while (true) {
+      yield idx.slice();
+      let i = r - 1;
+      while (i >= 0 && idx[i] === n - 1) i--;
+      if (i < 0) break;
+      idx[i]++;
+      for (let j = i + 1; j < r; j++) idx[j] = idx[i];
+    }
+  }
+
+  function estimateTotalForPool(n, maxK, cfg) {
+    const upper = Math.min(maxK, maxFeasibleSlots(cfg));
+    let total = 0;
+    for (let k = 2; k <= upper; k++) total += n * nMultichoose(n, k - 1);
+    return total;
+  }
+
+  function* comboGenerator(pool, maxK, cfg) {
+    const n = pool.length;
+    const upper = Math.min(maxK, maxFeasibleSlots(cfg));
+    for (let k = 2; k <= upper; k++) {
+      for (let p = 0; p < n; p++) {
+        for (const rest of multisetCombos(n, k - 1)) {
+          const combo = [pool[p]];
+          for (const ri of rest) combo.push(pool[ri]);
+          yield combo;
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------
+  // Relevance scoring + auto pool selection (replaces manual pick)
+  // ---------------------------------------------------------
+
+  function singleDefStatValue(def, stat) {
+    if (stat === "Harvest Tier") return def.harvestTierValue;
+    for (const t of typeOrderFor(def)) {
+      const row = def.rows[t];
+      if (row.tokensByStat[stat] && row.tokensByStat[stat].length) return computeStatSingle(row, stat);
+    }
+    return 0;
+  }
+
+  function computeRelevanceScores(defs, statsForScoring) {
+    const scores = new Array(defs.length).fill(0);
+    statsForScoring.forEach(stat => {
+      const vals = defs.map(d => singleDefStatValue(d, stat));
+      const min = Math.min.apply(null, vals);
+      const max = Math.max.apply(null, vals);
+      const range = max - min;
+      defs.forEach((d, i) => { scores[i] += range > 0 ? (vals[i] - min) / range : 0; });
+    });
+    return scores;
+  }
+
+  function selectPool(defs, selectedStats, maxK, forcedIds) {
+    const statsForScoring = selectedStats.length ? selectedStats : STAT_FIELDS;
+    const scores = computeRelevanceScores(defs, statsForScoring);
+    const scored = defs.map((d, i) => ({ d, score: scores[i] }));
+    scored.sort((a, b) => b.score - a.score);
+
+    const forced = forcedIds ? scored.filter(s => forcedIds.has(s.d.id)) : [];
+    const rest = forcedIds ? scored.filter(s => !forcedIds.has(s.d.id)) : scored;
+
+    const pool = forced.map(s => s.d);
+    // (budget check uses a placeholder cfg-free upper bound; real feasibility re-checked by caller with cfg)
+    for (const s of rest) {
+      pool.push(s.d);
+    }
+    return pool; // trimming to budget happens in trimPoolToBudget() once cfg/maxK are known
+  }
+
+  function trimPoolToBudget(orderedPool, forcedIds, maxK, cfg) {
+    const forced = orderedPool.filter(d => forcedIds && forcedIds.has(d.id));
+    const rest = orderedPool.filter(d => !(forcedIds && forcedIds.has(d.id)));
+    let pool = forced.slice();
+    for (const d of rest) {
+      const trialN = pool.length + 1;
+      if (estimateTotalForPool(trialN, maxK, cfg) > MAX_COMBOS) break;
+      pool.push(d);
+    }
+    if (pool.length === 0 && orderedPool.length > 0) pool = [orderedPool[0]];
+    return pool;
+  }
+
+  // ---------------------------------------------------------
+  // Ranking (highest raw value per stat = best / rank 1)
+  // ---------------------------------------------------------
+
+  function rankItems(items, selectedStats) {
+    const n = items.length;
+    if (n === 0 || selectedStats.length === 0) return items.map(it => ({ item: it, avgRank: 0 }));
+    const rankSums = new Array(n).fill(0);
+
+    for (const stat of selectedStats) {
+      const arr = items.map((it, i) => ({ i, v: it.values[stat] }));
+      arr.sort((a, b) => b.v - a.v); // descending: highest value = rank 1
+      let idx = 0;
+      while (idx < n) {
+        let j = idx;
+        while (j + 1 < n && arr[j + 1].v === arr[idx].v) j++;
+        const avgRank = (idx + 1 + j + 1) / 2;
+        for (let m = idx; m <= j; m++) rankSums[arr[m].i] += avgRank;
+        idx = j + 1;
+      }
+    }
+
+    const result = items.map((it, i) => ({ item: it, avgRank: rankSums[i] / selectedStats.length }));
+    result.sort((a, b) => a.avgRank - b.avgRank);
+    return result;
+  }
+
+  // ---------------------------------------------------------
+  // App state
+  // ---------------------------------------------------------
+
+  const state = {
+    rows: [],
+    materialDefs: [],
+    selectedStats: new Set(),
+    tab: "single",
+    single: { page: 1, ranked: [] },
+    alloy: { page: 1, ranked: [], computed: false }
+  };
+
+  const materialFilterSelection = new Set(); // ids chosen in the whitelist/blacklist picker
+  const traitFilterSelection = new Set();
+
+  // ---------------------------------------------------------
+  // DOM helpers
+  // ---------------------------------------------------------
+
+  const $ = sel => document.querySelector(sel);
+  const $$ = sel => Array.from(document.querySelectorAll(sel));
+
+  function el(tag, attrs, children) {
+    const e = document.createElement(tag);
+    if (attrs) for (const k in attrs) {
+      if (k === "class") e.className = attrs[k];
+      else e.setAttribute(k, attrs[k]);
+    }
+    if (children) for (const c of children) e.appendChild(c);
+    return e;
+  }
+
+  function formatNum(v) {
+    if (!isFinite(v)) return "0";
+    return (Math.round(v * 100) / 100).toString();
+  }
+
+  // ---------------------------------------------------------
+  // Loading a file
+  // ---------------------------------------------------------
+
+  function loadTSVText(text, label) {
+    const errBox = $("#uploadError");
+    errBox.hidden = true;
+    try {
+      const { headers, rows } = parseTSV(text);
+      state.rows = buildRows(headers, rows);
+      state.materialDefs = buildMaterialDefs(state.rows);
+
+      $("#dataFileName").textContent = label;
+      const nonExample = state.rows.filter(r => !r.isExample).length;
+      $("#dataSummary").textContent =
+        " — " + state.rows.length + " rows loaded (" + nonExample + " usable) across " +
+        state.materialDefs.length + " unique materials";
+      $("#uploadSection").hidden = true;
+      $("#app").hidden = false;
+      initAppUI();
+    } catch (e) {
+      errBox.hidden = false;
+      errBox.textContent = e.message || String(e);
+    }
+  }
+
+  function initAppUI() {
+    materialFilterSelection.clear();
+    traitFilterSelection.clear();
+    buildStatChecklist();
+    buildSingleTypeFilter();
+    buildMaterialFilterPicker();
+    buildTraitFilterList();
+    updateSlotHint();
+    updateEligibilityHint();
+    renderSingleTab();
+    renderAlloyTab();
+  }
+
+  // ---------------------------------------------------------
+  // Stat checklist
+  // ---------------------------------------------------------
+
+  function buildStatChecklist() {
+    const wrap = $("#statChecklist");
+    wrap.innerHTML = "";
+    STAT_FIELDS.forEach(stat => {
+      const id = "stat_" + stat.replace(/\s+/g, "_");
+      const label = el("label", { class: "stat-chip", for: id });
+      const input = el("input", { type: "checkbox", id });
+      input.addEventListener("change", () => {
+        if (input.checked) state.selectedStats.add(stat);
+        else state.selectedStats.delete(stat);
+        label.classList.toggle("checked", input.checked);
+        updateStatsCount();
+        renderSingleTab();
+        updateEligibilityHint();
+      });
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(stat));
+      wrap.appendChild(label);
+    });
+    updateStatsCount();
+  }
+
+  function updateStatsCount() {
+    $("#statsCount").textContent = state.selectedStats.size + " of " + STAT_FIELDS.length + " selected";
+  }
+
+  $("#statsAllBtn").addEventListener("click", () => {
+    STAT_FIELDS.forEach(s => state.selectedStats.add(s));
+    syncStatCheckboxes(); updateStatsCount(); renderSingleTab(); updateEligibilityHint();
+  });
+  $("#statsNoneBtn").addEventListener("click", () => {
+    state.selectedStats.clear();
+    syncStatCheckboxes(); updateStatsCount(); renderSingleTab(); updateEligibilityHint();
+  });
+  function syncStatCheckboxes() {
+    $$("#statChecklist input").forEach(input => {
+      const stat = STAT_FIELDS.find(s => "stat_" + s.replace(/\s+/g, "_") === input.id);
+      input.checked = state.selectedStats.has(stat);
+      input.closest(".stat-chip").classList.toggle("checked", input.checked);
+    });
+  }
+
+  // ---------------------------------------------------------
+  // Tabs
+  // ---------------------------------------------------------
+
+  $$(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      $$(".tab-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      state.tab = btn.dataset.tab;
+      $$(".tab-panel").forEach(p => p.classList.remove("active"));
+      $("#tab-" + state.tab).classList.add("active");
+    });
+  });
+
+  // ---------------------------------------------------------
+  // Tab 1: single materials (row-based, unaffected by alloy rules)
+  // ---------------------------------------------------------
+
+  function buildSingleTypeFilter() {
+    const types = Array.from(new Set(state.rows.map(r => r.type).filter(Boolean))).sort();
+    const sel = $("#singleTypeFilter");
+    sel.innerHTML = "";
+    sel.appendChild(el("option", { value: "" }, [document.createTextNode("All types")]));
+    types.forEach(t => sel.appendChild(el("option", { value: t }, [document.createTextNode(t)])));
+    sel.value = "";
+    sel.addEventListener("change", renderSingleTab);
+  }
+  $("#singleHideExamples").addEventListener("change", renderSingleTab);
+
+  function getSingleCandidates() {
+    const typeFilter = $("#singleTypeFilter").value;
+    const hideEx = $("#singleHideExamples").checked;
+    return state.rows.filter(r => {
+      if (hideEx && r.isExample) return false;
+      if (typeFilter && r.type !== typeFilter) return false;
+      return true;
+    });
+  }
+
+  function renderSingleTab() {
+    if (!state.rows.length) return;
+    const candidates = getSingleCandidates();
+    const selectedStats = Array.from(state.selectedStats);
+    const evaluated = candidates.map(row => {
+      const values = {};
+      selectedStats.forEach(stat => { values[stat] = computeStatSingle(row, stat); });
+      return { materials: [row], synergy: 1, values, single: true };
+    });
+    state.single.ranked = rankItems(evaluated, selectedStats);
+    state.single.page = 1;
+    renderResultsPage("single");
+  }
+
+  // ---------------------------------------------------------
+  // Material filter picker (whitelist / blacklist)
+  // ---------------------------------------------------------
+
+  function buildMaterialFilterPicker() {
+    renderMaterialFilterPicker();
+    $("#materialFilterSearch").addEventListener("input", renderMaterialFilterPicker);
+    $("#materialFilterMode").addEventListener("change", () => {
+      updateEligibilityHint();
+    });
+    $("#onlyWhitelisted").addEventListener("change", updateEligibilityHint);
+  }
+
+  function renderMaterialFilterPicker() {
+    const search = $("#materialFilterSearch").value.trim().toLowerCase();
+    const wrap = $("#materialFilterPicker");
+    wrap.innerHTML = "";
+    state.materialDefs
+      .filter(d => !search || d.name.toLowerCase().includes(search))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach(d => {
+        const id = "mf_" + d.id.replace(/[^a-z0-9]/gi, "_");
+        const label = el("label", { for: id });
+        const input = el("input", { type: "checkbox", id });
+        input.checked = materialFilterSelection.has(d.id);
+        input.addEventListener("change", () => {
+          if (input.checked) materialFilterSelection.add(d.id);
+          else materialFilterSelection.delete(d.id);
+          updateEligibilityHint();
+        });
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(d.name));
+        wrap.appendChild(label);
+      });
+  }
+
+  function getMaterialFilterSettings() {
+    return {
+      mode: $("#materialFilterMode").value,
+      ids: new Set(materialFilterSelection),
+      onlyWhitelisted: $("#onlyWhitelisted").checked
+    };
+  }
+
+  // ---------------------------------------------------------
+  // Trait filter
+  // ---------------------------------------------------------
+
+  function buildTraitFilterList() {
+    const traits = allUniqueBaseTraits(state.rows);
+    const wrap = $("#traitFilterList");
+    wrap.innerHTML = "";
+    traits.forEach(trait => {
+      const id = "tf_" + trait.replace(/[^a-z0-9]/gi, "_");
+      const label = el("label", { for: id });
+      const input = el("input", { type: "checkbox", id });
+      input.addEventListener("change", () => {
+        if (input.checked) traitFilterSelection.add(trait);
+        else traitFilterSelection.delete(trait);
+        label.classList.toggle("checked", input.checked);
+      });
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(trait));
+      wrap.appendChild(label);
+    });
+  }
+
+  // ---------------------------------------------------------
+  // Tab 2: forged alloys
+  // ---------------------------------------------------------
+
+  const versionSelect = $("#versionBucket");
+  const superMixerCheckbox = $("#superMixerAllowed");
+  const alloySizeInput = $("#alloySize");
+
+  versionSelect.addEventListener("change", () => {
+    if (versionSelect.value === "pre402") {
+      superMixerCheckbox.checked = false;
+      superMixerCheckbox.disabled = true;
+    } else {
+      superMixerCheckbox.disabled = false;
+    }
+    updateSlotHint();
+    updateEligibilityHint();
+  });
+  superMixerCheckbox.addEventListener("change", () => { updateSlotHint(); updateEligibilityHint(); });
+  alloySizeInput.addEventListener("input", () => {
+    $("#alloySizeVal").textContent = alloySizeInput.value;
+    updateSlotHint();
+  });
+
+  function currentCfg() {
+    return getVersionConfig(versionSelect.value, superMixerCheckbox.checked);
+  }
+
+  function updateSlotHint() {
+    const cfg = currentCfg();
+    const feasible = maxFeasibleSlots(cfg);
+    const requested = parseInt(alloySizeInput.value, 10);
+    let msg = "Alloy Forge: " + cfg.alloyForgeSlots + " slots.";
+    if (cfg.superMixerAvailable) msg += " Super Mixer: " + cfg.superMixerSlots + " slots.";
+    else msg += " Super Mixer not available for this version/setting.";
+    if (requested > feasible) msg += " Sizes above " + feasible + " won't produce any results with your current settings.";
+    $("#slotHint").textContent = msg;
+  }
+
+  function updateEligibilityHint() {
+    const filter = getMaterialFilterSettings();
+    let pool = state.materialDefs;
+    if (filter.mode === "blacklist") pool = pool.filter(d => !filter.ids.has(d.id));
+    else if (filter.mode === "whitelist" && filter.onlyWhitelisted) pool = pool.filter(d => filter.ids.has(d.id));
+    $("#eligibilityHint").textContent = pool.length + " material(s) currently eligible before auto‑narrowing.";
+  }
+
+  function renderAlloyTab() {
+    if (!state.alloy.computed) {
+      $("#alloyResults").innerHTML = "";
+      $("#alloyPager").innerHTML = "";
+      $("#alloyComputeMsg").textContent = "";
+    }
+  }
+
+  $("#computeAlloysBtn").addEventListener("click", runAlloyComputation);
+
+  function runAlloyComputation() {
+    const selectedStats = Array.from(state.selectedStats);
+    const msg = $("#alloyComputeMsg");
+    if (selectedStats.length === 0) {
+      msg.textContent = "Select at least one stat above before computing.";
+      return;
+    }
+
+    const cfg = currentCfg();
+    const maxK = parseInt(alloySizeInput.value, 10);
+    const filter = getMaterialFilterSettings();
+
+    let candidateDefs = state.materialDefs;
+    let forcedIds = null;
+    if (filter.mode === "blacklist") {
+      candidateDefs = candidateDefs.filter(d => !filter.ids.has(d.id));
+    } else if (filter.mode === "whitelist") {
+      if (filter.onlyWhitelisted) candidateDefs = candidateDefs.filter(d => filter.ids.has(d.id));
+      else forcedIds = filter.ids;
+    }
+
+    if (candidateDefs.length === 0) {
+      msg.textContent = "No materials match your filter settings.";
+      $("#alloyResults").innerHTML = "";
+      $("#alloyPager").innerHTML = "";
+      return;
+    }
+
+    const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
+    const pool = trimPoolToBudget(orderedByScore, forcedIds, maxK, cfg);
+
+    const total = estimateTotalForPool(pool.length, maxK, cfg);
+    const traitFilterSet = new Set(traitFilterSelection);
+
+    $("#computeAlloysBtn").disabled = true;
+    const progressWrap = $("#progressWrap");
+    const progressFill = $("#progressFill");
+    const progressLabel = $("#progressLabel");
+    progressWrap.hidden = false;
+    progressFill.style.width = "0%";
+    progressLabel.textContent = "Starting…";
+    msg.textContent = "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials for this search.";
+
+    const gen = comboGenerator(pool, maxK, cfg);
+    const results = [];
+    let processed = 0;
+
+    function step() {
+      let count = 0;
+      let res = gen.next();
+      while (!res.done && count < CHUNK_SIZE) {
+        const combo = res.value;
+        const sharedTypesSet = getSharedTypes(combo);
+        if (sharedTypesSet.size > 0) {
+          const makerTags = getMakerTags(combo, cfg);
+          if (makerTags) {
+            const sharedTypesArr = Array.from(sharedTypesSet);
+            let passTraits = true;
+            if (traitFilterSet.size > 0) {
+              const comboTraits = extractComboTraits(combo, sharedTypesArr);
+              for (const t of traitFilterSet) { if (!comboTraits.has(t)) { passTraits = false; break; } }
+            }
+            if (passTraits) {
+              const synergy = computeSynergy(combo);
+              const values = {};
+              selectedStats.forEach(stat => {
+                const raw = computeStatForCombo(combo, stat, sharedTypesArr);
+                values[stat] = stat === "Harvest Tier" ? raw : raw * synergy;
+              });
+              results.push({ materials: combo, synergy, values, sharedTypes: sharedTypesArr, makerTags, single: false });
+            }
+          }
+        }
+        processed++;
+        count++;
+        res = gen.next();
+      }
+
+      const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 100;
+      progressFill.style.width = pct + "%";
+      progressLabel.textContent = processed.toLocaleString() + " / " + total.toLocaleString() + " combinations checked (" + pct + "%)";
+
+      if (!res.done) {
+        setTimeout(step, 0);
+      } else {
+        state.alloy.ranked = rankItems(results, selectedStats);
+        state.alloy.page = 1;
+        state.alloy.computed = true;
+        progressWrap.hidden = true;
+        $("#computeAlloysBtn").disabled = false;
+        msg.textContent = "Auto-narrowed to " + pool.length + " of " + candidateDefs.length +
+          " eligible materials · checked " + total.toLocaleString() + " combinations · " +
+          results.length.toLocaleString() + " valid alloys found.";
+        renderResultsPage("alloy");
+      }
+    }
+    step();
+  }
+
+  // ---------------------------------------------------------
+  // Rendering result cards + pagination
+  // ---------------------------------------------------------
+
+  function renderResultsPage(which) {
+    const st = state[which];
+    const container = $(which === "single" ? "#singleResults" : "#alloyResults");
+    const pagerEl = $(which === "single" ? "#singlePager" : "#alloyPager");
+    container.innerHTML = "";
+
+    const selectedStats = Array.from(state.selectedStats);
+    if (selectedStats.length === 0) {
+      container.appendChild(el("p", { class: "hint" }, [document.createTextNode("Select at least one stat above to see rankings.")]));
+      pagerEl.innerHTML = "";
+      return;
+    }
+    if (st.ranked.length === 0) {
+      container.appendChild(el("p", { class: "hint" }, [document.createTextNode(
+        which === "alloy" ? "No valid alloys found yet — set your filters and click \u201cApply filters & compute rankings.\u201d" : "No materials match the current filters."
+      )]));
+      pagerEl.innerHTML = "";
+      return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(st.ranked.length / RESULTS_PER_PAGE));
+    st.page = clamp(st.page, 1, totalPages);
+    const startIdx = (st.page - 1) * RESULTS_PER_PAGE;
+    const pageItems = st.ranked.slice(startIdx, startIdx + RESULTS_PER_PAGE);
+
+    pageItems.forEach((entry, i) => container.appendChild(renderResultCard(entry, startIdx + i + 1, selectedStats)));
+
+    pagerEl.innerHTML = "";
+    const prevBtn = el("button", { class: "btn btn-ghost btn-sm" }, [document.createTextNode("← Prev")]);
+    prevBtn.disabled = st.page <= 1;
+    prevBtn.addEventListener("click", () => { st.page--; renderResultsPage(which); container.scrollIntoView({ behavior: "smooth", block: "start" }); });
+    const nextBtn = el("button", { class: "btn btn-ghost btn-sm" }, [document.createTextNode("Next →")]);
+    nextBtn.disabled = st.page >= totalPages;
+    nextBtn.addEventListener("click", () => { st.page++; renderResultsPage(which); container.scrollIntoView({ behavior: "smooth", block: "start" }); });
+    const label = el("span", {}, [document.createTextNode("Page " + st.page + " of " + totalPages + " (" + st.ranked.length.toLocaleString() + " results)")]);
+    pagerEl.appendChild(prevBtn);
+    pagerEl.appendChild(label);
+    pagerEl.appendChild(nextBtn);
+  }
+
+  function renderResultCard(entry, rank, selectedStats) {
+    const item = entry.item;
+    const mats = item.materials;
+    const card = el("div", { class: "result-card" });
+    card.appendChild(el("div", { class: "rank-badge" }, [document.createTextNode(String(rank))]));
+
+    const body = el("div", { class: "result-body" });
+    const title = el("div", { class: "result-title" });
+    const nameText = mats.length === 1 ? mats[0].name : mats.map(m => m.name).join(" + ");
+    title.appendChild(el("h3", {}, [document.createTextNode(nameText)]));
+
+    if (item.single) {
+      title.appendChild(el("span", { class: "no-alloy-tag" }, [document.createTextNode("No alloying required")]));
+    } else {
+      const synClass = item.synergy >= 1 ? "pos" : "neg";
+      title.appendChild(el("span", { class: "synergy-tag " + synClass }, [document.createTextNode("synergy " + formatNum(item.synergy) + "x")]));
+      (item.makerTags || []).forEach(tag => {
+        title.appendChild(el("span", { class: "maker-tag" }, [document.createTextNode(tag)]));
+      });
+    }
+    body.appendChild(title);
+
+    if (mats.length > 1) {
+      const compParts = mats.map((m, i) => (i === 0 ? m.name + " (primary)" : m.name));
+      const compLine = compParts.join(" + ") + "  ·  keeps: " + (item.sharedTypes || []).join(", ");
+      body.appendChild(el("div", { class: "composition" }, [document.createTextNode(compLine)]));
+    } else {
+      body.appendChild(el("div", { class: "composition" }, [document.createTextNode(mats[0].type + " · " + (mats[0].categories.join(", ") || "—"))]));
+    }
+
+    const statValues = el("div", { class: "stat-values" });
+    selectedStats.forEach(stat => {
+      const span = el("span", {}, [document.createTextNode(stat + ": ")]);
+      span.appendChild(el("b", {}, [document.createTextNode(formatNum(item.values[stat]))]));
+      statValues.appendChild(span);
+    });
+    body.appendChild(statValues);
+
+    body.appendChild(el("div", { class: "avg-rank" }, [document.createTextNode("Average rank: " + formatNum(entry.avgRank))]));
+    card.appendChild(body);
+    return card;
+  }
+
+  // ---------------------------------------------------------
+  // File input wiring
+  // ---------------------------------------------------------
+
+  const fileInput = $("#fileInput");
+  const dropzone = $("#dropzone");
+
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => loadTSVText(reader.result, file.name);
+    reader.onerror = () => {
+      const errBox = $("#uploadError");
+      errBox.hidden = false;
+      errBox.textContent = "Couldn't read that file.";
+    };
+    reader.readAsText(file);
+  });
+
+  ["dragenter", "dragover"].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add("dragover"); }));
+  ["dragleave", "drop"].forEach(evt => dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove("dragover"); }));
+  dropzone.addEventListener("drop", e => {
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => loadTSVText(reader.result, file.name);
+    reader.readAsText(file);
+  });
+
+  $("#sampleDataBtn").addEventListener("click", () => {
+    if (typeof SAMPLE_TSV === "undefined") return;
+    loadTSVText(SAMPLE_TSV, "sample-data.tsv (bundled example)");
+  });
+
+  $("#reloadBtn").addEventListener("click", () => {
+    state.rows = [];
+    state.materialDefs = [];
+    state.alloy.computed = false;
+    materialFilterSelection.clear();
+    traitFilterSelection.clear();
+    $("#app").hidden = true;
+    $("#uploadSection").hidden = false;
+    $("#uploadError").hidden = true;
+    fileInput.value = "";
+  });
+
+})();
+
+  } catch (err) {
+    var banner = document.getElementById('fatalErrorBanner');
+    if (banner) {
+      banner.style.display = 'block';
+      banner.textContent = 'Something went wrong loading the page: ' + (err && err.message ? err.message : String(err)) + ' — please report this (see the browser console for details).';
+    }
+    console.error(err);
+  }
+})();
+</script>
 </body>
 </html>
