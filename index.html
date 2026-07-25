@@ -310,7 +310,13 @@ main{ padding: 32px 0 60px; }
 .synergy-tag.pos{ color: var(--good); border-color: rgba(127,191,106,0.4); }
 .synergy-tag.neg{ color: var(--bad); border-color: rgba(200,84,84,0.4); }
 
-.pager{ display:flex; align-items:center; justify-content:center; gap: 14px; margin-top: 18px; font-family: var(--font-mono); font-size: 13px; }
+.pager{ display:flex; align-items:center; justify-content:center; flex-wrap: wrap; gap: 14px; margin-top: 18px; font-family: var(--font-mono); font-size: 13px; }
+.page-jump{ display:flex; align-items:center; gap:6px; }
+.page-jump-input{
+  width: 70px; font-family: var(--font-mono); font-size: 13px; color: var(--text);
+  background: var(--bg-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 5px 7px;
+}
+.machine-check{ background: var(--panel-alt); }
 .pager button{ font-family: var(--font-body); }
 
 /* Footer */
@@ -437,14 +443,20 @@ main{ padding: 32px 0 60px; }
           <div class="alloy-config-row">
             <label class="field-label">Silent Gear version
               <select id="versionBucket">
-                <option value="pre402">3.0.0 – 4.0.1 (Alloy Forge only · 4 slots)</option>
+                <option value="pre402">3.0.0 – 4.0.1 (no Super Mixer · 4 slots elsewhere)</option>
                 <option value="402to414">4.0.2 – 4.1.4 (+ Super Mixer · 4 slots)</option>
-                <option value="415plus" selected>4.1.5 – 4.2.1 (Alloy Forge 6 slots · Super Mixer 8 slots)</option>
+                <option value="415plus" selected>4.1.5 – 4.2.1 (6 slots · Super Mixer 8 slots)</option>
               </select>
             </label>
-            <label class="field-label checkbox-field">
-              <input type="checkbox" id="superMixerAllowed" checked>
-              I have access to a Super Mixer
+          </div>
+          <div class="alloy-config-row">
+            <label class="field-label">Machines available
+              <div class="chip-row" id="machineChecks">
+                <label class="checkbox-field machine-check"><input type="checkbox" id="machineAlloyForge" checked> Alloy Forge / Metal Alloyer</label>
+                <label class="checkbox-field machine-check"><input type="checkbox" id="machineSuperMixer" checked> Super Mixer</label>
+                <label class="checkbox-field machine-check"><input type="checkbox" id="machineRecrystalizer" checked> Recrystalizer</label>
+                <label class="checkbox-field machine-check"><input type="checkbox" id="machineRefabricator" checked> Refabricator</label>
+              </div>
             </label>
           </div>
 
@@ -511,7 +523,7 @@ main{ padding: 32px 0 60px; }
         <p><strong>Which materials can alloy together.</strong> A material can be a Coating, Grip, Main, etc. depending on which rows it has in your file. Two or more materials can only be alloyed if they share at least one of those roles (in‑game logic, recreated from <code>AlloyMakerBlockEntity</code>), and a shared role is dropped if every material in the recipe is flagged "Additive" for it. Whatever roles survive are the only ones the resulting alloy keeps — so combining Iron and Gold keeps whatever they both do, but drops "Coating" since Iron can't be one.</p>
         <p><strong>Combining an alloy.</strong> For every surviving shared role, every material's token for that role is pooled, in the order the materials were chosen. Whichever material comes first sets the "primary" baseline that weights every other averaged token — so a different pick for the first slot changes the result, same as in‑game. Materials after the first are treated as an unordered group, matching how the weighting math behaves for anything past the primary slot. <strong>Harvest Tier is the one exception</strong> — it isn't averaged at all, it simply takes the highest tier among the materials used.</p>
         <p><strong>Synergy.</strong> Recreated from the mod's own formula: a bonus for using more distinct materials, a penalty if the parts share no common category, a small bonus for categories shared by more than one part, and a small penalty scaled by how far each part's Rarity sits from the first part's Rarity. Synergy is clamped between 0.1x and 2.0x, and isn't applied to Harvest Tier. Traits are shown/filterable for reference but their exact mechanical effects aren't factored into the math, since that logic isn't data‑driven in the export.</p>
-        <p><strong>Which station makes it.</strong> Recipes made only from Metal and/or Dust materials can go in the Alloy Forge / Metal Alloyer. Anything else needs the Super Mixer (added in version 4.0.2). Both stations are slot‑limited, and slot counts increase in version 4.1.5 — set your version above to match your world.</p>
+        <p><strong>Which station makes it.</strong> Four stations exist, each accepting different material categories: the <strong>Alloy Forge / Metal Alloyer</strong> (Metal and/or Dust), the <strong>Super Mixer</strong> (any category, added in version 4.0.2), the <strong>Recrystalizer</strong> (Gem and/or Dust), and the <strong>Refabricator</strong> (Slime, Fiber, and/or Cloth). Every material in a recipe must match a station's accepted categories for that station to work. All four are slot‑limited (4 slots before version 4.1.5, 6 from 4.1.5 on — except the Super Mixer, which goes from 4 to 8), and you can turn any station off if you don't have access to it. Set your version above and untick any machines you can't use.</p>
         <p><strong>Ranking.</strong> For every stat you selected, every material/alloy gets a rank — highest final value = rank 1. Ranks across all your selected stats are averaged, and the final list is sorted with the lowest average rank (i.e. the best overall) first.</p>
         <p><strong>Auto‑narrowing the alloy search.</strong> Order‑sensitive combinations with repeats allowed grow explosively, so instead of asking you to hand‑pick materials, the tool scores every eligible material by how strong it is, on its own, across your selected stats, then automatically keeps as many of the top scorers as will fit inside a combination budget for your chosen max alloy size (whitelisted materials are always kept, regardless of score). This is a heuristic, not an exhaustive guarantee of the single best possible alloy — but it gets you dramatically closer than manual testing, in well under a minute.</p>
       </div>
@@ -837,39 +849,69 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
   }
 
   // ---------------------------------------------------------
-  // Version / maker (Alloy Forge vs Super Mixer) rules
+  // Version / maker (4 alloying stations) rules
   // ---------------------------------------------------------
 
-  function getVersionConfig(bucket, superMixerCheckbox) {
-    let alloyForgeSlots, superMixerBase, superMixerSlots;
+  const MACHINES = [
+    { key: "alloyForge", label: "Alloy Forge / Metal Alloyer", test: m => m.categories.includes("Metal") || m.categories.includes("Dust") },
+    { key: "superMixer", label: "Super Mixer", test: () => true },
+    { key: "recrystalizer", label: "Recrystalizer", test: m => m.categories.includes("Gem") || m.categories.includes("Dust") },
+    { key: "refabricator", label: "Refabricator", test: m => m.categories.includes("Slime") || m.categories.includes("Fiber") || m.categories.includes("Cloth") }
+  ];
+
+  // Base slot counts / existence per version bucket, before the user's own checkbox toggles are applied.
+  function getVersionBaseConfig(bucket) {
     if (bucket === "pre402") {
-      alloyForgeSlots = 4; superMixerBase = false; superMixerSlots = 0;
+      return {
+        alloyForge: { slots: 4, exists: true },
+        superMixer: { slots: 0, exists: false },
+        recrystalizer: { slots: 4, exists: true },
+        refabricator: { slots: 4, exists: true }
+      };
     } else if (bucket === "402to414") {
-      alloyForgeSlots = 4; superMixerBase = true; superMixerSlots = 4;
-    } else {
-      alloyForgeSlots = 6; superMixerBase = true; superMixerSlots = 8;
+      return {
+        alloyForge: { slots: 4, exists: true },
+        superMixer: { slots: 4, exists: true },
+        recrystalizer: { slots: 4, exists: true },
+        refabricator: { slots: 4, exists: true }
+      };
     }
     return {
-      alloyForgeSlots,
-      superMixerAvailable: superMixerBase && !!superMixerCheckbox,
-      superMixerSlots
+      alloyForge: { slots: 6, exists: true },
+      superMixer: { slots: 8, exists: true },
+      recrystalizer: { slots: 6, exists: true },
+      refabricator: { slots: 6, exists: true }
     };
   }
 
+  // enabledMap: { alloyForge: bool, superMixer: bool, recrystalizer: bool, refabricator: bool }
+  function getVersionConfig(bucket, enabledMap) {
+    const base = getVersionBaseConfig(bucket);
+    const cfg = {};
+    MACHINES.forEach(m => {
+      const b = base[m.key];
+      cfg[m.key] = { slots: b.slots, available: b.exists && !!(enabledMap && enabledMap[m.key]) };
+    });
+    return cfg;
+  }
+
   function maxFeasibleSlots(cfg) {
-    return Math.max(cfg.alloyForgeSlots, cfg.superMixerAvailable ? cfg.superMixerSlots : 0);
+    let mx = 0;
+    MACHINES.forEach(m => { if (cfg[m.key] && cfg[m.key].available) mx = Math.max(mx, cfg[m.key].slots); });
+    return mx;
   }
 
   function getMakerTags(materials, cfg) {
     const n = materials.length;
-    const allMetalOrDust = materials.every(m => m.categories.includes("Metal") || m.categories.includes("Dust"));
-    const canAlloyForge = allMetalOrDust && n <= cfg.alloyForgeSlots;
-    const canSuperMixer = cfg.superMixerAvailable && n <= cfg.superMixerSlots;
-    if (!canAlloyForge && !canSuperMixer) return null;
     const tags = [];
-    if (canAlloyForge) tags.push("Alloy Forge / Metal Alloyer");
-    if (canSuperMixer) tags.push("Super Mixer");
-    return tags;
+    for (const machine of MACHINES) {
+      const mc = cfg[machine.key];
+      if (!mc || !mc.available) continue;
+      if (n > mc.slots) continue;
+      if (!materials.every(machine.test)) continue;
+      tags.push(machine.label);
+    }
+    return tags.length ? tags : null;
   }
 
   // ---------------------------------------------------------
@@ -1251,37 +1293,53 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
   // ---------------------------------------------------------
 
   const versionSelect = $("#versionBucket");
-  const superMixerCheckbox = $("#superMixerAllowed");
+  const machineCheckboxes = {
+    alloyForge: $("#machineAlloyForge"),
+    superMixer: $("#machineSuperMixer"),
+    recrystalizer: $("#machineRecrystalizer"),
+    refabricator: $("#machineRefabricator")
+  };
   const alloySizeInput = $("#alloySize");
 
   versionSelect.addEventListener("change", () => {
     if (versionSelect.value === "pre402") {
-      superMixerCheckbox.checked = false;
-      superMixerCheckbox.disabled = true;
+      machineCheckboxes.superMixer.checked = false;
+      machineCheckboxes.superMixer.disabled = true;
     } else {
-      superMixerCheckbox.disabled = false;
+      machineCheckboxes.superMixer.disabled = false;
     }
     updateSlotHint();
     updateEligibilityHint();
   });
-  superMixerCheckbox.addEventListener("change", () => { updateSlotHint(); updateEligibilityHint(); });
+  Object.values(machineCheckboxes).forEach(cb => {
+    cb.addEventListener("change", () => { updateSlotHint(); updateEligibilityHint(); });
+  });
   alloySizeInput.addEventListener("input", () => {
     $("#alloySizeVal").textContent = alloySizeInput.value;
     updateSlotHint();
   });
 
   function currentCfg() {
-    return getVersionConfig(versionSelect.value, superMixerCheckbox.checked);
+    const enabledMap = {
+      alloyForge: machineCheckboxes.alloyForge.checked,
+      superMixer: machineCheckboxes.superMixer.checked,
+      recrystalizer: machineCheckboxes.recrystalizer.checked,
+      refabricator: machineCheckboxes.refabricator.checked
+    };
+    return getVersionConfig(versionSelect.value, enabledMap);
   }
 
   function updateSlotHint() {
     const cfg = currentCfg();
     const feasible = maxFeasibleSlots(cfg);
     const requested = parseInt(alloySizeInput.value, 10);
-    let msg = "Alloy Forge: " + cfg.alloyForgeSlots + " slots.";
-    if (cfg.superMixerAvailable) msg += " Super Mixer: " + cfg.superMixerSlots + " slots.";
-    else msg += " Super Mixer not available for this version/setting.";
-    if (requested > feasible) msg += " Sizes above " + feasible + " won't produce any results with your current settings.";
+    const parts = MACHINES.map(m => {
+      if (!cfg[m.key].available) return m.label + ": not available.";
+      return m.label + ": " + cfg[m.key].slots + " slots.";
+    });
+    let msg = parts.join(" ");
+    if (feasible === 0) msg += " No machines are currently enabled — nothing can be made.";
+    else if (requested > feasible) msg += " Sizes above " + feasible + " won't produce any results with your current settings.";
     $("#slotHint").textContent = msg;
   }
 
@@ -1441,9 +1499,28 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     nextBtn.disabled = st.page >= totalPages;
     nextBtn.addEventListener("click", () => { st.page++; renderResultsPage(which); container.scrollIntoView({ behavior: "smooth", block: "start" }); });
     const label = el("span", {}, [document.createTextNode("Page " + st.page + " of " + totalPages + " (" + st.ranked.length.toLocaleString() + " results)")]);
+
+    const jumpWrap = el("span", { class: "page-jump" });
+    const jumpInput = el("input", { type: "number", min: "1", max: String(totalPages), value: String(st.page), class: "page-jump-input" });
+    const jumpBtn = el("button", { class: "btn btn-ghost btn-sm" }, [document.createTextNode("Go")]);
+    function doJump() {
+      const n = parseInt(jumpInput.value, 10);
+      if (!isNaN(n)) {
+        st.page = clamp(n, 1, totalPages);
+        renderResultsPage(which);
+        container.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+    jumpBtn.addEventListener("click", doJump);
+    jumpInput.addEventListener("keydown", e => { if (e.key === "Enter") doJump(); });
+    jumpWrap.appendChild(document.createTextNode("Go to page:"));
+    jumpWrap.appendChild(jumpInput);
+    jumpWrap.appendChild(jumpBtn);
+
     pagerEl.appendChild(prevBtn);
     pagerEl.appendChild(label);
     pagerEl.appendChild(nextBtn);
+    pagerEl.appendChild(jumpWrap);
   }
 
   function renderResultCard(entry, rank, selectedStats) {
