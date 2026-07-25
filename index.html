@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Assay Bench — Silent Gear Alloy Calculator</title>
+<title>Silent Gear Solved — Material &amp; Alloy Calculator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
@@ -16,8 +16,8 @@
   <div class="wrap header-inner">
     <div class="brand">
       <span class="eyebrow">Silent Gear · Material Tool</span>
-      <h1>Assay Bench</h1>
-      <p class="tagline">Drop in your material export, mark what you value, and it'll rank every material — and every 1‑to‑6 part alloy — from best to worst.</p>
+      <h1>Silent Gear Solved</h1>
+      <p class="tagline">Drop in your material export, mark what you value, and it'll rank every material — and every valid forged alloy — from best to worst.</p>
     </div>
     <div class="furnace-signature" aria-hidden="true">
       <svg viewBox="0 0 120 120" width="90" height="90">
@@ -72,7 +72,7 @@
         <span class="step-tag">02</span>
         <h2>What do you value?</h2>
       </div>
-      <p class="hint">Pick the stats to rank on. Both tabs below use this same list.</p>
+      <p class="hint">Pick the stats to rank on — highest final value wins. Both tabs below use this same list.</p>
       <div class="checklist-toolbar">
         <button id="statsAllBtn" class="btn btn-ghost btn-sm" type="button">Select all</button>
         <button id="statsNoneBtn" class="btn btn-ghost btn-sm" type="button">Clear</button>
@@ -85,7 +85,7 @@
     <section class="panel tabs-panel">
       <div class="tabs" role="tablist">
         <button class="tab-btn active" data-tab="single" role="tab">Single Materials</button>
-        <button class="tab-btn" data-tab="alloy" role="tab">Forged Alloys (1–6)</button>
+        <button class="tab-btn" data-tab="alloy" role="tab">Forged Alloys</button>
       </div>
 
       <!-- TAB 1 -->
@@ -106,37 +106,64 @@
       <!-- TAB 2 -->
       <div id="tab-alloy" class="tab-panel">
         <div class="alloy-config">
+
           <div class="alloy-config-row">
-            <label class="field-label">Candidate part types
-              <div id="alloyTypeChecks" class="chip-row"></div>
-            </label>
-          </div>
-          <div class="alloy-config-row">
-            <label class="field-label">Name filter
-              <input type="text" id="alloyNameFilter" placeholder="e.g. wool, steel…">
+            <label class="field-label">Silent Gear version
+              <select id="versionBucket">
+                <option value="pre402">3.0.0 – 4.0.1 (Alloy Forge only · 4 slots)</option>
+                <option value="402to414">4.0.2 – 4.1.4 (+ Super Mixer · 4 slots)</option>
+                <option value="415plus" selected>4.1.5 – 4.2.1 (Alloy Forge 6 slots · Super Mixer 8 slots)</option>
+              </select>
             </label>
             <label class="field-label checkbox-field">
-              <input type="checkbox" id="alloyHideExamples" checked>
-              Hide template/example entries
+              <input type="checkbox" id="superMixerAllowed" checked>
+              I have access to a Super Mixer
             </label>
-          </div>
-
-          <div id="alloyMaterialPicker" class="material-picker"></div>
-          <div class="picker-toolbar">
-            <button id="alloySelectVisibleBtn" class="btn btn-ghost btn-sm" type="button">Select all visible</button>
-            <button id="alloyClearBtn" class="btn btn-ghost btn-sm" type="button">Clear selection</button>
-            <span id="alloySelectedCount" class="muted"></span>
           </div>
 
           <div class="alloy-config-row size-row">
             <label class="field-label">
-              Max alloy size: <strong id="alloySizeVal">3</strong>
-              <input type="range" id="alloySize" min="1" max="6" value="3" step="1">
+              Max alloy size: <strong id="alloySizeVal">4</strong>
+              <input type="range" id="alloySize" min="2" max="8" value="4" step="1">
             </label>
-            <div id="comboEstimate" class="combo-estimate"></div>
+            <div id="slotHint" class="muted"></div>
           </div>
 
-          <button id="computeAlloysBtn" class="btn btn-primary" type="button" disabled>Compute rankings</button>
+          <details class="filter-details">
+            <summary>Filter by material (optional)</summary>
+            <div class="alloy-config-row">
+              <label class="field-label">Mode
+                <select id="materialFilterMode">
+                  <option value="none">No filter</option>
+                  <option value="whitelist">Whitelist</option>
+                  <option value="blacklist">Blacklist</option>
+                </select>
+              </label>
+              <label class="field-label checkbox-field">
+                <input type="checkbox" id="onlyWhitelisted">
+                Use ONLY whitelisted materials
+              </label>
+            </div>
+            <label class="field-label">Search materials
+              <input type="text" id="materialFilterSearch" placeholder="e.g. wool, steel…">
+            </label>
+            <div id="materialFilterPicker" class="material-picker"></div>
+          </details>
+
+          <details class="filter-details">
+            <summary>Filter by trait (optional)</summary>
+            <p class="hint">Only alloys with <em>all</em> checked traits present will be shown.</p>
+            <div id="traitFilterList" class="chip-row"></div>
+          </details>
+
+          <div id="eligibilityHint" class="muted eligibility-hint"></div>
+
+          <button id="computeAlloysBtn" class="btn btn-primary" type="button">Apply filters &amp; compute rankings</button>
+
+          <div id="progressWrap" class="progress-wrap" hidden>
+            <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+            <span id="progressLabel" class="muted"></span>
+          </div>
           <div id="alloyComputeMsg" class="muted"></div>
         </div>
 
@@ -151,13 +178,15 @@
 <footer class="site-footer">
   <div class="wrap">
     <details>
-      <summary>How the numbers are calculated</summary>
+      <summary>How the numbers — and the alloy rules — are calculated</summary>
       <div class="explainer">
         <p><strong>Per‑material values.</strong> Each cell in your file is read as one or more tokens: a plain number averages in as a base value; <code>+N</code> adds flat; <code>N%</code> with a sign scales the running total; a bare <code>N%</code> averages in as a fraction; <code>xN</code> multiplies the total; a trailing <code>Nx</code> averages in as a multiplier baseline; and <code>name (N)</code> (used for Rarity / Harvest Tier) reads the number in parentheses.</p>
-        <p><strong>Combining an alloy.</strong> All tokens from every chosen part are pooled in the order the parts were chosen. Whichever part comes first sets the "primary" baseline value, which weights every other averaged token — so putting a different part first can change the result, exactly like in‑game. Everything after the first part is treated as an unordered group, matching how the weighting math behaves for anything past the primary slot.</p>
-        <p><strong>Synergy.</strong> Recreated from the mod's own formula: a bonus for using more distinct parts, a penalty if the parts share no common category, a small bonus for categories shared by more than one part, and a small penalty scaled by how far each part's Rarity sits from the first part's Rarity. Synergy is clamped between 0.1x and 2.0x. Traits are shown for reference but aren't factored into these numbers, since their effects aren't data‑driven in the export.</p>
-        <p><strong>Ranking.</strong> For every stat you selected, every material/alloy gets a rank — lowest raw value = rank 1. Ranks across all your selected stats are averaged, and the final list is sorted with the lowest average rank first.</p>
-        <p><strong>Why the alloy tab limits your selection.</strong> Order‑sensitive combinations with repeats allowed grow explosively (imagine picking a first part, then any 5 more from the same list). To keep the browser responsive, narrow the candidate list and/or the max alloy size until the combination count fits inside the budget shown above the Compute button.</p>
+        <p><strong>Which materials can alloy together.</strong> A material can be a Coating, Grip, Main, etc. depending on which rows it has in your file. Two or more materials can only be alloyed if they share at least one of those roles (in‑game logic, recreated from <code>AlloyMakerBlockEntity</code>), and a shared role is dropped if every material in the recipe is flagged "Additive" for it. Whatever roles survive are the only ones the resulting alloy keeps — so combining Iron and Gold keeps whatever they both do, but drops "Coating" since Iron can't be one.</p>
+        <p><strong>Combining an alloy.</strong> For every surviving shared role, every material's token for that role is pooled, in the order the materials were chosen. Whichever material comes first sets the "primary" baseline that weights every other averaged token — so a different pick for the first slot changes the result, same as in‑game. Materials after the first are treated as an unordered group, matching how the weighting math behaves for anything past the primary slot. <strong>Harvest Tier is the one exception</strong> — it isn't averaged at all, it simply takes the highest tier among the materials used.</p>
+        <p><strong>Synergy.</strong> Recreated from the mod's own formula: a bonus for using more distinct materials, a penalty if the parts share no common category, a small bonus for categories shared by more than one part, and a small penalty scaled by how far each part's Rarity sits from the first part's Rarity. Synergy is clamped between 0.1x and 2.0x, and isn't applied to Harvest Tier. Traits are shown/filterable for reference but their exact mechanical effects aren't factored into the math, since that logic isn't data‑driven in the export.</p>
+        <p><strong>Which station makes it.</strong> Recipes made only from Metal and/or Dust materials can go in the Alloy Forge / Metal Alloyer. Anything else needs the Super Mixer (added in version 4.0.2). Both stations are slot‑limited, and slot counts increase in version 4.1.5 — set your version above to match your world.</p>
+        <p><strong>Ranking.</strong> For every stat you selected, every material/alloy gets a rank — highest final value = rank 1. Ranks across all your selected stats are averaged, and the final list is sorted with the lowest average rank (i.e. the best overall) first.</p>
+        <p><strong>Auto‑narrowing the alloy search.</strong> Order‑sensitive combinations with repeats allowed grow explosively, so instead of asking you to hand‑pick materials, the tool scores every eligible material by how strong it is, on its own, across your selected stats, then automatically keeps as many of the top scorers as will fit inside a combination budget for your chosen max alloy size (whitelisted materials are always kept, regardless of score). This is a heuristic, not an exhaustive guarantee of the single best possible alloy — but it gets you dramatically closer than manual testing, in well under a minute.</p>
       </div>
     </details>
     <p class="foot-note">Runs entirely in your browser — nothing you upload leaves your machine.</p>

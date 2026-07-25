@@ -238,6 +238,43 @@ main{ padding: 32px 0 60px; }
 .combo-estimate.ok{ color: var(--good); border-color: rgba(127,191,106,0.4); }
 .combo-estimate.over{ color: var(--bad); border-color: rgba(200,84,84,0.4); }
 
+/* Filter details blocks */
+.filter-details{
+  border: 1px solid var(--border-soft); border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 14px; background: var(--panel);
+}
+.filter-details summary{
+  cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--text);
+  list-style: none;
+}
+.filter-details summary::-webkit-details-marker{ display:none; }
+.filter-details summary::before{ content: "▸ "; color: var(--steel-soft); }
+.filter-details[open] summary::before{ content: "▾ "; }
+.filter-details > *:not(summary){ margin-top: 12px; }
+
+.eligibility-hint{ margin-bottom: 12px; font-family: var(--font-mono); font-size: 12.5px; }
+
+/* Progress bar */
+.progress-wrap{ margin-top: 14px; display:flex; flex-direction:column; gap:6px; }
+.progress-bar{
+  height: 8px; border-radius: 20px; background: var(--bg); border: 1px solid var(--border);
+  overflow: hidden;
+}
+.progress-fill{
+  height: 100%; width: 0%; background: linear-gradient(90deg, var(--ember), var(--gold));
+  transition: width 0.15s ease;
+}
+
+/* Maker tags on result cards */
+.maker-tag{
+  font-family: var(--font-mono); font-size: 11px; padding: 2px 7px; border-radius: 20px;
+  border: 1px solid var(--border); color: var(--text-dim);
+}
+.no-alloy-tag{
+  font-family: var(--font-mono); font-size: 11px; padding: 2px 7px; border-radius: 20px;
+  border: 1px solid var(--border-soft); color: var(--text-faint);
+}
+
 /* Results */
 .results-list{ display:flex; flex-direction:column; gap: 10px; margin-top: 6px; }
 .result-card{
