@@ -334,6 +334,8 @@ main{ padding: 32px 0 60px; }
   color: var(--steel-soft); margin-bottom: 4px;
 }
 .stat-values{ display:flex; flex-wrap:wrap; gap: 6px 14px; font-family: var(--font-mono); font-size: 12.5px; }
+.trait-line{ font-family: var(--font-mono); font-size: 11.5px; color: var(--text-dim); margin-top: 6px; }
+.tt-traits{ margin-top: 4px; color: var(--text-dim); }
 .stat-values span b{ color: var(--text); }
 .avg-rank{ font-family: var(--font-mono); font-size: 12px; color: var(--text-faint); margin-top: 8px; }
 .synergy-tag{ font-family: var(--font-mono); font-size: 12px; padding: 2px 7px; border-radius: 20px; border:1px solid var(--border); }
@@ -510,7 +512,7 @@ main{ padding: 32px 0 60px; }
               <label class="field-label">Mode
                 <select id="materialFilterMode">
                   <option value="none">No filter</option>
-                  <option value="whitelist">Whitelist (use ONLY these)</option>
+                  <option value="whitelist">Whitelist</option>
                   <option value="blacklist">Blacklist</option>
                 </select>
               </label>
@@ -519,12 +521,18 @@ main{ padding: 32px 0 60px; }
               <input type="text" id="materialFilterSearch" placeholder="e.g. wool, steel…">
             </label>
             <div id="materialFilterPicker" class="material-picker"></div>
+            <div class="picker-toolbar">
+              <button id="materialFilterClearBtn" class="btn btn-ghost btn-sm" type="button">Deselect all</button>
+            </div>
           </details>
 
           <details class="filter-details">
             <summary>Filter by trait (optional)</summary>
             <p class="hint">Only alloys with <em>all</em> checked traits present will be shown.</p>
             <div id="traitFilterList" class="chip-row"></div>
+            <div class="picker-toolbar">
+              <button id="traitFilterClearBtn" class="btn btn-ghost btn-sm" type="button">Deselect all</button>
+            </div>
           </details>
 
           <div class="alloy-config-row">
@@ -533,7 +541,7 @@ main{ padding: 32px 0 60px; }
               Auto-narrow the search (recommended)
             </label>
           </div>
-          <p class="warning-text">If auto-narrowing is turned off, the tool will search every eligible combination with no size budget — this can take a LOT of time to compute. A hard safety ceiling (2,000,000 combinations) still applies underneath, since going far past that risks crashing the browser tab rather than just being slow.</p>
+          <p class="warning-text">If auto-narrowing is turned off, the tool searches every eligible combination with no size budget — this can take a LOT of time to compute. To stay within your browser's memory, it only keeps the best 250,000 alloys found so far in memory at any point, discarding a worse one whenever a better one turns up, so you can search the entire space without crashing the tab.</p>
 
           <div id="eligibilityHint" class="muted eligibility-hint"></div>
 
@@ -602,7 +610,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
   const REQUIRED_HEADERS = ["Name", "Type", "ID"];
   const RESULTS_PER_PAGE = 10;
   const MAX_COMBOS = 350000; // auto-narrowing budget (used to trim the pool when narrowing is on)
-  const HARD_CEILING = 2000000; // absolute stop, even with auto-narrowing off — past this a browser tab can run out of memory rather than just being slow
+  const EXHAUSTIVE_TOP_K = 250000; // when auto-narrowing is off, only this many best-so-far alloys are kept in memory at once
   const CHUNK_SIZE = 4000;
 
   const SYNERGY_MULTI = 1.1;
@@ -876,6 +884,22 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     return set;
   }
 
+  // Traits for a single role only (used for display, since a hover tooltip for
+  // "Coating" shouldn't list traits that only came from the "Main" role).
+  function extractTraitsForType(materials, type) {
+    const set = new Set();
+    for (const m of materials) {
+      const row = m.rows[type];
+      if (row && row.traits) {
+        row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
+          const b = baseTraitName(tr);
+          if (b) set.add(b);
+        });
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }
+
   function allUniqueBaseTraits(rows) {
     const set = new Set();
     rows.forEach(r => {
@@ -1059,6 +1083,52 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
   }
 
   // ---------------------------------------------------------
+  // Bounded top-K (for exhaustive search with auto-narrowing off): keeps only
+  // the best-scoring N items seen so far, using a running min/max per stat to
+  // approximate "how good" each item is without holding every item in memory.
+  // ---------------------------------------------------------
+
+  class BoundedTopK {
+    constructor(capacity, getScore) {
+      this.capacity = capacity;
+      this.getScore = getScore;
+      this.data = [];
+    }
+    get size() { return this.data.length; }
+    _cmp(a, b) { return this.getScore(a) - this.getScore(b); }
+    _bubbleUp(i) {
+      while (i > 0) {
+        const p = (i - 1) >> 1;
+        if (this._cmp(this.data[p], this.data[i]) <= 0) break;
+        const tmp = this.data[p]; this.data[p] = this.data[i]; this.data[i] = tmp;
+        i = p;
+      }
+    }
+    _bubbleDown(i) {
+      const n = this.data.length;
+      while (true) {
+        let smallest = i;
+        const l = 2 * i + 1, r = 2 * i + 2;
+        if (l < n && this._cmp(this.data[l], this.data[smallest]) < 0) smallest = l;
+        if (r < n && this._cmp(this.data[r], this.data[smallest]) < 0) smallest = r;
+        if (smallest === i) break;
+        const tmp = this.data[smallest]; this.data[smallest] = this.data[i]; this.data[i] = tmp;
+        i = smallest;
+      }
+    }
+    offer(item) {
+      if (this.data.length < this.capacity) {
+        this.data.push(item);
+        this._bubbleUp(this.data.length - 1);
+      } else if (this._cmp(item, this.data[0]) > 0) {
+        this.data[0] = item;
+        this._bubbleDown(0);
+      }
+    }
+    toArray() { return this.data.slice(); }
+  }
+
+  // ---------------------------------------------------------
   // Ranking (highest raw value per stat = best / rank 1)
   // ---------------------------------------------------------
 
@@ -1231,9 +1301,8 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     const types = Array.from(new Set(state.rows.map(r => r.type).filter(Boolean))).sort();
     const sel = $("#singleTypeFilter");
     sel.innerHTML = "";
-    sel.appendChild(el("option", { value: "" }, [document.createTextNode("All types")]));
     types.forEach(t => sel.appendChild(el("option", { value: t }, [document.createTextNode(t)])));
-    sel.value = "";
+    sel.value = types.includes("Main") ? "Main" : (types[0] || "");
     sel.addEventListener("change", renderSingleTab);
   }
   $("#singleHideExamples").addEventListener("change", renderSingleTab);
@@ -1280,6 +1349,11 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     renderMaterialFilterPicker();
     $("#materialFilterSearch").addEventListener("input", renderMaterialFilterPicker);
     $("#materialFilterMode").addEventListener("change", () => {
+      updateEligibilityHint();
+    });
+    $("#materialFilterClearBtn").addEventListener("click", () => {
+      materialFilterSelection.clear();
+      renderMaterialFilterPicker();
       updateEligibilityHint();
     });
   }
@@ -1334,6 +1408,13 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       label.appendChild(input);
       label.appendChild(document.createTextNode(trait));
       wrap.appendChild(label);
+    });
+    $("#traitFilterClearBtn").addEventListener("click", () => {
+      traitFilterSelection.clear();
+      $$("#traitFilterList input").forEach(input => {
+        input.checked = false;
+        input.closest("label").classList.remove("checked");
+      });
     });
   }
 
@@ -1475,16 +1556,6 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
 
     const total = estimateTotalForPool(pool.length, maxK, cfg);
 
-    if (total > HARD_CEILING) {
-      msg.textContent = "That would be " + total.toLocaleString() + " combinations — over the " +
-        HARD_CEILING.toLocaleString() + " hard safety ceiling (a browser tab can run out of memory " +
-        "past this point, not just run slowly). Turn auto-narrowing back on, narrow your material " +
-        "filter, or reduce max alloy size.";
-      $("#alloyResults").innerHTML = "";
-      $("#alloyPager").innerHTML = "";
-      return;
-    }
-
     $("#computeAlloysBtn").disabled = true;
     const progressWrap = $("#progressWrap");
     const progressFill = $("#progressFill");
@@ -1494,10 +1565,27 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     progressLabel.textContent = "Starting…";
     msg.textContent = autoNarrow
       ? "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials for this search."
-      : "Auto-narrowing is off — searching all " + pool.length + " eligible materials. This may take a while.";
+      : "Auto-narrowing is off — searching all " + pool.length + " eligible materials (keeping only the best " +
+        EXHAUSTIVE_TOP_K.toLocaleString() + " found so far in memory at any time). This may take a while.";
 
     const gen = comboGenerator(pool, maxK, cfg);
-    const results = [];
+    const results = []; // used when auto-narrow is on (pool is already budget-bounded)
+
+    // Used when auto-narrow is off: tracks a running min/max per stat so each
+    // item's "how good is it" score can be judged without holding every item
+    // seen in memory — only the best EXHAUSTIVE_TOP_K survive at any time.
+    const runningRange = {};
+    selectedStats.forEach(stat => { runningRange[stat] = { min: Infinity, max: -Infinity }; });
+    const topK = autoNarrow ? null : new BoundedTopK(EXHAUSTIVE_TOP_K, item => {
+      let s = 0;
+      for (const stat of selectedStats) {
+        const r = runningRange[stat];
+        const range = r.max - r.min;
+        s += range > 0 ? (item.values[stat] - r.min) / range : 0;
+      }
+      return s / selectedStats.length;
+    });
+
     let processed = 0;
 
     function step() {
@@ -1524,7 +1612,18 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
                   const raw = computeStatForType(combo, stat, rankType);
                   values[stat] = stat === "Harvest Tier" ? raw : raw * synergy;
                 });
-                results.push({ materials: combo, synergy, values, sharedTypes: sharedTypesArr, rankType, makerTags, single: false });
+                const item = { materials: combo, synergy, values, sharedTypes: sharedTypesArr, rankType, makerTags, single: false };
+                if (autoNarrow) {
+                  results.push(item);
+                } else {
+                  selectedStats.forEach(stat => {
+                    const v = values[stat];
+                    const r = runningRange[stat];
+                    if (v < r.min) r.min = v;
+                    if (v > r.max) r.max = v;
+                  });
+                  topK.offer(item);
+                }
               }
             }
           }
@@ -1536,12 +1635,14 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
 
       const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 100;
       progressFill.style.width = pct + "%";
-      progressLabel.textContent = processed.toLocaleString() + " / " + total.toLocaleString() + " combinations checked (" + pct + "%)";
+      progressLabel.textContent = processed.toLocaleString() + " / " + total.toLocaleString() + " combinations checked (" + pct + "%)" +
+        (topK ? " · keeping best " + topK.size.toLocaleString() + " so far" : "");
 
       if (!res.done) {
         setTimeout(step, 0);
       } else {
-        state.alloy.ranked = rankItems(results, selectedStats);
+        const finalResults = autoNarrow ? results : topK.toArray();
+        state.alloy.ranked = rankItems(finalResults, selectedStats);
         state.alloy.page = 1;
         state.alloy.computed = true;
         progressWrap.hidden = true;
@@ -1550,7 +1651,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
           ? "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials"
           : "Searched all " + pool.length + " eligible materials (auto-narrowing off)") +
           " · checked " + total.toLocaleString() + " combinations · " +
-          results.length.toLocaleString() + " valid alloys found.";
+          finalResults.length.toLocaleString() + (autoNarrow ? " valid alloys found." : " valid alloys retained (best-so-far, out of every one checked).");
         renderResultsPage("alloy");
       }
     }
@@ -1668,6 +1769,9 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       });
       body.appendChild(statValues);
 
+      const mainTraits = extractTraitsForType(mats, item.rankType);
+      body.appendChild(el("div", { class: "trait-line" }, [document.createTextNode("Traits: " + (mainTraits.length ? mainTraits.join(", ") : "—"))]));
+
       const otherTypes = item.sharedTypes.filter(t => t !== item.rankType).sort();
       if (otherTypes.length) {
         const chipsRow = el("div", { class: "type-chips-row" });
@@ -1680,6 +1784,8 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
             const val = stat === "Harvest Tier" ? raw : raw * item.synergy;
             tooltip.appendChild(el("span", { class: "tt-line" }, [document.createTextNode(stat + ": " + formatNum(val))]));
           });
+          const typeTraits = extractTraitsForType(mats, type);
+          tooltip.appendChild(el("span", { class: "tt-line tt-traits" }, [document.createTextNode("Traits: " + (typeTraits.length ? typeTraits.join(", ") : "—"))]));
           chip.appendChild(tooltip);
           chipsRow.appendChild(chip);
         });
