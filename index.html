@@ -536,13 +536,17 @@ main{ padding: 32px 0 60px; }
           </details>
 
           <div class="alloy-config-row">
-            <label class="field-label checkbox-field">
-              <input type="checkbox" id="autoNarrowToggle" checked>
-              Auto-narrow the search (recommended)
+            <label class="field-label">Search strategy
+              <select id="narrowModeSelect">
+                <option value="auto">Auto-narrow (recommended)</option>
+                <option value="dynamic">Dynamic filter</option>
+                <option value="none">No narrowing (exhaustive)</option>
+              </select>
             </label>
           </div>
-          <p class="warning-text">If auto-narrowing is turned off, the tool searches every eligible combination with no size budget — this can take a LOT of time to compute. To stay within your browser's memory, it only keeps the best 250,000 alloys found so far in memory at any point, discarding a worse one whenever a better one turns up, so you can search the entire space without crashing the tab.</p>
+          <p id="narrowModeWarning" class="warning-text" hidden></p>
 
+          <div id="comboEstimateHint" class="muted eligibility-hint"></div>
           <div id="eligibilityHint" class="muted eligibility-hint"></div>
 
           <button id="computeAlloysBtn" class="btn btn-primary" type="button">Apply filters &amp; compute rankings</button>
@@ -574,7 +578,7 @@ main{ padding: 32px 0 60px; }
         <p><strong>Synergy.</strong> Recreated from the mod's own formula: a bonus for using more distinct materials, a penalty if the parts share no common category, a small bonus for categories shared by more than one part, and a small penalty scaled by how far each part's Rarity sits from the first part's Rarity. Synergy is clamped between 0.1x and 2.0x, and isn't applied to Harvest Tier. Traits are shown/filterable for reference but their exact mechanical effects aren't factored into the math, since that logic isn't data‑driven in the export.</p>
         <p><strong>Which station makes it.</strong> Four stations exist, each accepting different material categories: the <strong>Alloy Forge / Metal Alloyer</strong> (Metal and/or Dust), the <strong>Super Mixer</strong> (any category, added in version 4.0.2), the <strong>Recrystalizer</strong> (Gem and/or Dust), and the <strong>Refabricator</strong> (Slime, Fiber, and/or Cloth). Every material in a recipe must match a station's accepted categories for that station to work. All four are slot‑limited (4 slots before version 4.1.5, 6 from 4.1.5 on — except the Super Mixer, which goes from 4 to 8), and you can turn any station off if you don't have access to it. Set your version above and untick any machines you can't use.</p>
         <p><strong>Ranking.</strong> For every stat you selected, every material/alloy gets a rank — highest final value = rank 1. Ranks across all your selected stats are averaged, and the final list is sorted with the lowest average rank (i.e. the best overall) first.</p>
-        <p><strong>Auto‑narrowing the alloy search.</strong> Order‑sensitive combinations with repeats allowed grow explosively, so instead of asking you to hand‑pick materials, the tool scores every eligible material by how strong it is, on its own, across your selected stats, then automatically keeps as many of the top scorers as will fit inside a combination budget for your chosen max alloy size (whitelisted materials are always kept, regardless of score). This is a heuristic, not an exhaustive guarantee of the single best possible alloy — but it gets you dramatically closer than manual testing, in well under a minute.</p>
+        <p><strong>Search strategy.</strong> Order‑sensitive combinations with repeats allowed grow explosively, so there are three ways to handle it. <strong>Auto‑narrow</strong> scores every eligible material by how strong it is, on its own, across your selected stats, then keeps as many top scorers as fit inside a combination budget (at least 15 materials are always kept, and whitelisted materials are always kept regardless of score). <strong>Dynamic filter</strong> is more thorough: it runs a full, unnarrowed search at alloy size 3, drops the bottom 10% of materials based on how well they actually performed in that search, then repeats at size 4, 5, and so on up to your chosen max size — each round's pruning is based on real combination results rather than a single material's standalone stats. <strong>No narrowing</strong> checks every single eligible combination with no pool reduction at all; since that can be billions of combinations, it keeps only the best 1,000 found so far in memory at any point (approximated with a running best‑so‑far comparison), discarding a worse one whenever a better one turns up, so the search can run to completion without crashing the tab. All three are heuristics except "no narrowing," which is a true exhaustive search of your current filters — none of them guarantee the single best possible alloy when narrowed, but auto‑narrow and dynamic filter get you dramatically closer than manual testing, in far less time.</p>
       </div>
     </details>
     <p class="foot-note">Runs entirely in your browser — nothing you upload leaves your machine.</p>
@@ -610,7 +614,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
   const REQUIRED_HEADERS = ["Name", "Type", "ID"];
   const RESULTS_PER_PAGE = 10;
   const MAX_COMBOS = 350000; // auto-narrowing budget (used to trim the pool when narrowing is on)
-  const EXHAUSTIVE_TOP_K = 250000; // when auto-narrowing is off, only this many best-so-far alloys are kept in memory at once
+  const EXHAUSTIVE_TOP_K = 1000; // when auto-narrowing is off, only this many best-so-far alloys are kept in memory at once
   const CHUNK_SIZE = 4000;
 
   const SYNERGY_MULTI = 1.1;
@@ -1069,13 +1073,15 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     return pool; // trimming to budget happens in trimPoolToBudget() once cfg/maxK are known
   }
 
+  const MIN_AUTO_NARROW_POOL = 15;
+
   function trimPoolToBudget(orderedPool, forcedIds, maxK, cfg) {
     const forced = orderedPool.filter(d => forcedIds && forcedIds.has(d.id));
     const rest = orderedPool.filter(d => !(forcedIds && forcedIds.has(d.id)));
     let pool = forced.slice();
     for (const d of rest) {
       const trialN = pool.length + 1;
-      if (estimateTotalForPool(trialN, maxK, cfg) > MAX_COMBOS) break;
+      if (estimateTotalForPool(trialN, maxK, cfg) > MAX_COMBOS && pool.length >= MIN_AUTO_NARROW_POOL) break;
       pool.push(d);
     }
     if (pool.length === 0 && orderedPool.length > 0) pool = [orderedPool[0]];
@@ -1227,6 +1233,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     buildRankTypeDropdown();
     buildMaterialFilterPicker();
     buildTraitFilterList();
+    updateNarrowModeAvailability();
     updateSlotHint();
     updateEligibilityHint();
     renderSingleTab();
@@ -1315,7 +1322,36 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     sel.value = types.includes("Main") ? "Main" : (types[0] || "");
     sel.addEventListener("change", () => { updateEligibilityHint(); });
   }
-  $("#autoNarrowToggle").addEventListener("change", updateEligibilityHint);
+  function findOptionByValue(selectEl, value) {
+    return Array.from(selectEl.querySelectorAll("option")).find(o => o.getAttribute("value") === value);
+  }
+
+  function updateNarrowModeAvailability() {
+    const maxK = parseInt(alloySizeInput.value, 10);
+    const sel = $("#narrowModeSelect");
+    const dynamicOption = findOptionByValue(sel, "dynamic");
+    if (dynamicOption) {
+      dynamicOption.disabled = maxK <= 3;
+      if (maxK <= 3 && sel.value === "dynamic") sel.value = "auto";
+    }
+  }
+
+  $("#narrowModeSelect").addEventListener("change", () => {
+    const mode = $("#narrowModeSelect").value;
+    const warn = $("#narrowModeWarning");
+    if (mode === "none") {
+      warn.hidden = false;
+      warn.textContent = "No narrowing checks every eligible combination with no pool reduction — this can take a LOT of time. It keeps only the best " + EXHAUSTIVE_TOP_K.toLocaleString() + " alloys found so far in memory, so it can finish without crashing the tab.";
+    } else if (mode === "dynamic") {
+      warn.hidden = false;
+      warn.textContent = "Dynamic filter runs several full search rounds (sizes 3 up to your max), pruning the weakest 10% of materials between rounds based on real results — more thorough than auto-narrow, but slower.";
+    } else {
+      warn.hidden = true;
+      warn.textContent = "";
+    }
+    updateEligibilityHint();
+    updateComboEstimateHint();
+  });
 
   function getSingleCandidates() {
     const typeFilter = $("#singleTypeFilter").value;
@@ -1445,15 +1481,22 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       }
       superMixerForcedOffByVersion = false;
     }
+    const newFeasible = maxFeasibleSlots(currentCfg());
+    alloySizeInput.value = String(newFeasible);
+    $("#alloySizeVal").textContent = alloySizeInput.value;
+    updateNarrowModeAvailability();
     updateSlotHint();
     updateEligibilityHint();
+    updateComboEstimateHint();
   });
   Object.values(machineCheckboxes).forEach(cb => {
-    cb.addEventListener("change", () => { updateSlotHint(); updateEligibilityHint(); });
+    cb.addEventListener("change", () => { updateSlotHint(); updateEligibilityHint(); updateComboEstimateHint(); });
   });
   alloySizeInput.addEventListener("input", () => {
     $("#alloySizeVal").textContent = alloySizeInput.value;
+    updateNarrowModeAvailability();
     updateSlotHint();
+    updateComboEstimateHint();
   });
 
   function currentCfg() {
@@ -1494,9 +1537,45 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
 
   function updateEligibilityHint() {
     const pool = getTypeAndFilterCandidates();
-    const autoNarrow = $("#autoNarrowToggle").checked;
-    $("#eligibilityHint").textContent = pool.length + " material(s) currently eligible" +
-      (autoNarrow ? " before auto‑narrowing." : " (auto‑narrowing is off — all of these will be searched).");
+    const mode = $("#narrowModeSelect").value;
+    let modeText;
+    if (mode === "auto") modeText = " before auto-narrowing.";
+    else if (mode === "dynamic") modeText = " before dynamic-filter rounds.";
+    else modeText = " (no narrowing — all of these are searched).";
+    $("#eligibilityHint").textContent = pool.length + " material(s) currently eligible" + modeText;
+    updateComboEstimateHint();
+  }
+
+  function updateComboEstimateHint() {
+    const box = $("#comboEstimateHint");
+    const selectedStats = Array.from(state.selectedStats);
+    const maxK = parseInt(alloySizeInput.value, 10);
+    const cfg = currentCfg();
+    const mode = $("#narrowModeSelect").value;
+    const candidateDefs = getTypeAndFilterCandidates();
+
+    if (candidateDefs.length === 0) {
+      box.textContent = "No materials match your current filters.";
+      return;
+    }
+
+    if (mode === "none") {
+      const total = estimateTotalForPool(candidateDefs.length, maxK, cfg);
+      box.textContent = total.toLocaleString() + " combinations possible with no narrowing — this is what will actually be checked.";
+    } else if (mode === "dynamic") {
+      if (maxK <= 3) {
+        box.textContent = "Dynamic filter needs a max alloy size above 3.";
+      } else {
+        const round1 = estimateTotalForPool(candidateDefs.length, 3, cfg);
+        box.textContent = "Dynamic filter: round 1 (size 3, all " + candidateDefs.length + " materials) checks " +
+          round1.toLocaleString() + " combinations, then narrows progressively through size " + maxK + ".";
+      }
+    } else {
+      const ordered = selectPool(candidateDefs, selectedStats, maxK, null);
+      const trimmed = trimPoolToBudget(ordered, null, maxK, cfg);
+      const total = estimateTotalForPool(trimmed.length, maxK, cfg);
+      box.textContent = "Auto-narrow will check " + total.toLocaleString() + " combinations (from " + trimmed.length + " of " + candidateDefs.length + " materials).";
+    }
   }
 
   function renderAlloyTab() {
@@ -1509,74 +1588,21 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
 
   $("#computeAlloysBtn").addEventListener("click", runAlloyComputation);
 
-  function runAlloyComputation() {
-    const selectedStats = Array.from(state.selectedStats);
-    const msg = $("#alloyComputeMsg");
-    if (selectedStats.length === 0) {
-      msg.textContent = "Select at least one stat above before computing.";
-      return;
-    }
-
-    const cfg = currentCfg();
-    const maxK = parseInt(alloySizeInput.value, 10);
-    const rankType = $("#rankTypeSelect").value;
-    const autoNarrow = $("#autoNarrowToggle").checked;
-    const traitFilterSet = new Set(traitFilterSelection);
-
-    const candidateDefs = getTypeAndFilterCandidates();
-
-    if (candidateDefs.length === 0) {
-      msg.textContent = "No materials match your filter settings and selected role.";
-      $("#alloyResults").innerHTML = "";
-      $("#alloyPager").innerHTML = "";
-      return;
-    }
-
-    // Materials carrying at least one of the required traits (on the selected
-    // role's row) are always kept in the auto-narrowed pool, so trait filtering
-    // doesn't get starved out by pure stat-relevance scoring.
-    let forcedIds = null;
-    if (traitFilterSet.size > 0) {
-      forcedIds = new Set();
-      candidateDefs.forEach(d => {
-        const row = d.rows[rankType];
-        if (!row || !row.traits) return;
-        const traits = row.traits.split(",").map(s => s.trim()).filter(Boolean).map(baseTraitName);
-        if (traits.some(t => traitFilterSet.has(t))) forcedIds.add(d.id);
-      });
-    }
-
-    let pool;
-    if (autoNarrow) {
-      const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
-      pool = trimPoolToBudget(orderedByScore, forcedIds, maxK, cfg);
-    } else {
-      pool = candidateDefs;
-    }
-
-    const total = estimateTotalForPool(pool.length, maxK, cfg);
-
-    $("#computeAlloysBtn").disabled = true;
-    const progressWrap = $("#progressWrap");
+  // Runs one full chunked combination search over `pool` for sizes 2..roundMaxK.
+  // If topKCap is set, keeps only the best-so-far topKCap items (bounded memory);
+  // otherwise accumulates every valid result in a plain array. Calls
+  // onComplete(rankedResults, totalChecked) once the whole pool has been scanned.
+  function runComboSearchRound(pool, roundMaxK, opts, onComplete) {
+    const { selectedStats, rankType, cfg, traitFilterSet, topKCap, progressPrefix } = opts;
+    const total = estimateTotalForPool(pool.length, roundMaxK, cfg);
     const progressFill = $("#progressFill");
     const progressLabel = $("#progressLabel");
-    progressWrap.hidden = false;
-    progressFill.style.width = "0%";
-    progressLabel.textContent = "Starting…";
-    msg.textContent = autoNarrow
-      ? "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials for this search."
-      : "Auto-narrowing is off — searching all " + pool.length + " eligible materials (keeping only the best " +
-        EXHAUSTIVE_TOP_K.toLocaleString() + " found so far in memory at any time). This may take a while.";
 
-    const gen = comboGenerator(pool, maxK, cfg);
-    const results = []; // used when auto-narrow is on (pool is already budget-bounded)
-
-    // Used when auto-narrow is off: tracks a running min/max per stat so each
-    // item's "how good is it" score can be judged without holding every item
-    // seen in memory — only the best EXHAUSTIVE_TOP_K survive at any time.
+    const gen = comboGenerator(pool, roundMaxK, cfg);
+    const results = topKCap ? null : [];
     const runningRange = {};
     selectedStats.forEach(stat => { runningRange[stat] = { min: Infinity, max: -Infinity }; });
-    const topK = autoNarrow ? null : new BoundedTopK(EXHAUSTIVE_TOP_K, item => {
+    const topK = topKCap ? new BoundedTopK(topKCap, item => {
       let s = 0;
       for (const stat of selectedStats) {
         const r = runningRange[stat];
@@ -1584,7 +1610,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
         s += range > 0 ? (item.values[stat] - r.min) / range : 0;
       }
       return s / selectedStats.length;
-    });
+    }) : null;
 
     let processed = 0;
 
@@ -1613,9 +1639,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
                   values[stat] = stat === "Harvest Tier" ? raw : raw * synergy;
                 });
                 const item = { materials: combo, synergy, values, sharedTypes: sharedTypesArr, rankType, makerTags, single: false };
-                if (autoNarrow) {
-                  results.push(item);
-                } else {
+                if (topKCap) {
                   selectedStats.forEach(stat => {
                     const v = values[stat];
                     const r = runningRange[stat];
@@ -1623,6 +1647,8 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
                     if (v > r.max) r.max = v;
                   });
                   topK.offer(item);
+                } else {
+                  results.push(item);
                 }
               }
             }
@@ -1635,27 +1661,138 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
 
       const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 100;
       progressFill.style.width = pct + "%";
-      progressLabel.textContent = processed.toLocaleString() + " / " + total.toLocaleString() + " combinations checked (" + pct + "%)" +
-        (topK ? " · keeping best " + topK.size.toLocaleString() + " so far" : "");
+      progressLabel.textContent = (progressPrefix || "") + processed.toLocaleString() + " / " + total.toLocaleString() +
+        " combinations checked (" + pct + "%)" + (topK ? " · keeping best " + topK.size.toLocaleString() + " so far" : "");
 
       if (!res.done) {
         setTimeout(step, 0);
       } else {
-        const finalResults = autoNarrow ? results : topK.toArray();
-        state.alloy.ranked = rankItems(finalResults, selectedStats);
-        state.alloy.page = 1;
-        state.alloy.computed = true;
-        progressWrap.hidden = true;
-        $("#computeAlloysBtn").disabled = false;
-        msg.textContent = (autoNarrow
-          ? "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials"
-          : "Searched all " + pool.length + " eligible materials (auto-narrowing off)") +
-          " · checked " + total.toLocaleString() + " combinations · " +
-          finalResults.length.toLocaleString() + (autoNarrow ? " valid alloys found." : " valid alloys retained (best-so-far, out of every one checked).");
-        renderResultsPage("alloy");
+        const finalResults = topKCap ? topK.toArray() : results;
+        const ranked = rankItems(finalResults, selectedStats);
+        onComplete(ranked, total);
       }
     }
     step();
+  }
+
+  // Per-material average rank across a round's surviving results — used by
+  // the dynamic-filter strategy to decide which materials to drop.
+  function scoreMaterialsFromRound(pool, ranked) {
+    const sums = new Map();
+    ranked.forEach(entry => {
+      entry.item.materials.forEach(m => {
+        const rec = sums.get(m.id) || { sum: 0, count: 0 };
+        rec.sum += entry.avgRank;
+        rec.count++;
+        sums.set(m.id, rec);
+      });
+    });
+    return pool.map(def => {
+      const rec = sums.get(def.id);
+      return { def, avgRank: rec && rec.count > 0 ? rec.sum / rec.count : Infinity };
+    });
+  }
+
+  function pruneBottomTenPercent(pool, ranked) {
+    const scored = scoreMaterialsFromRound(pool, ranked);
+    scored.sort((a, b) => a.avgRank - b.avgRank);
+    const keepCount = Math.max(2, Math.round(scored.length * 0.9));
+    return scored.slice(0, keepCount).map(s => s.def);
+  }
+
+  function runAlloyComputation() {
+    const selectedStats = Array.from(state.selectedStats);
+    const msg = $("#alloyComputeMsg");
+    if (selectedStats.length === 0) {
+      msg.textContent = "Select at least one stat above before computing.";
+      return;
+    }
+
+    const cfg = currentCfg();
+    const maxK = parseInt(alloySizeInput.value, 10);
+    const rankType = $("#rankTypeSelect").value;
+    const mode = $("#narrowModeSelect").value;
+    const traitFilterSet = new Set(traitFilterSelection);
+
+    const candidateDefs = getTypeAndFilterCandidates();
+
+    if (candidateDefs.length === 0) {
+      msg.textContent = "No materials match your filter settings and selected role.";
+      $("#alloyResults").innerHTML = "";
+      $("#alloyPager").innerHTML = "";
+      return;
+    }
+
+    // Materials carrying at least one of the required traits (on the selected
+    // role's row) are always kept in the auto-narrowed pool, so trait filtering
+    // doesn't get starved out by pure stat-relevance scoring.
+    let forcedIds = null;
+    if (traitFilterSet.size > 0) {
+      forcedIds = new Set();
+      candidateDefs.forEach(d => {
+        const row = d.rows[rankType];
+        if (!row || !row.traits) return;
+        const traits = row.traits.split(",").map(s => s.trim()).filter(Boolean).map(baseTraitName);
+        if (traits.some(t => traitFilterSet.has(t))) forcedIds.add(d.id);
+      });
+    }
+
+    $("#computeAlloysBtn").disabled = true;
+    const progressWrap = $("#progressWrap");
+    const progressFill = $("#progressFill");
+    const progressLabel = $("#progressLabel");
+    progressWrap.hidden = false;
+    progressFill.style.width = "0%";
+    progressLabel.textContent = "Starting…";
+
+    const baseOpts = { selectedStats, rankType, cfg, traitFilterSet };
+
+    function finish(pool, ranked, totalChecked, summaryPrefix) {
+      state.alloy.ranked = ranked;
+      state.alloy.page = 1;
+      state.alloy.computed = true;
+      progressWrap.hidden = true;
+      $("#computeAlloysBtn").disabled = false;
+      msg.textContent = summaryPrefix + " · checked " + totalChecked.toLocaleString() + " combinations · " +
+        ranked.length.toLocaleString() + " alloys in the final results.";
+      renderResultsPage("alloy");
+    }
+
+    if (mode === "none") {
+      const pool = candidateDefs;
+      msg.textContent = "No narrowing — searching all " + pool.length + " eligible materials (keeping only the best " +
+        EXHAUSTIVE_TOP_K.toLocaleString() + " found so far in memory at any time). This may take a while.";
+      runComboSearchRound(pool, maxK, Object.assign({ topKCap: EXHAUSTIVE_TOP_K, progressPrefix: "" }, baseOpts), (ranked, total) => {
+        finish(pool, ranked, total, "Searched all " + pool.length + " eligible materials (no narrowing)");
+      });
+    } else if (mode === "dynamic" && maxK > 3) {
+      // Dynamic filter: full unnarrowed rounds at increasing sizes, pruning the
+      // weakest 10% of materials (by real round results) between rounds.
+      const startK = 3;
+      const totalRounds = Math.max(1, maxK - startK + 1);
+
+      function doRound(pool, k, roundIndex) {
+        const prefix = "Dynamic filter — round " + roundIndex + " of " + totalRounds + " (alloy size " + k + "): ";
+        runComboSearchRound(pool, k, Object.assign({ topKCap: EXHAUSTIVE_TOP_K, progressPrefix: prefix }, baseOpts), (ranked, total) => {
+          if (k >= maxK) {
+            finish(pool, ranked, total, "Dynamic filter finished at size " + maxK + " with " + pool.length + " of " + candidateDefs.length + " materials");
+          } else {
+            const nextPool = pruneBottomTenPercent(pool, ranked);
+            msg.textContent = "Round " + roundIndex + " of " + totalRounds + " done — narrowed from " + pool.length + " to " + nextPool.length + " materials. Starting size " + (k + 1) + "…";
+            setTimeout(() => doRound(nextPool, k + 1, roundIndex + 1), 0);
+          }
+        });
+      }
+      doRound(candidateDefs, startK, 1);
+    } else {
+      // Default / "auto" — also the safe fallback for any unrecognized mode value.
+      const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
+      const pool = trimPoolToBudget(orderedByScore, forcedIds, maxK, cfg);
+      msg.textContent = "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials for this search.";
+      runComboSearchRound(pool, maxK, Object.assign({ topKCap: null, progressPrefix: "" }, baseOpts), (ranked, total) => {
+        finish(pool, ranked, total, "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials");
+      });
+    }
   }
 
   // ---------------------------------------------------------
