@@ -1388,7 +1388,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       warn.textContent = "Dynamic filter cuts 20% of materials up front, then runs full search rounds from size 3 up to your max, pruning at least 10% of materials between rounds (more if needed to stay under 30 million combinations next round) based on real alloy results — more thorough than auto-narrow, but slower.";
     } else if (mode === "additive") {
       warn.hidden = false;
-      warn.textContent = "Additive alloying cuts 20% of materials up front, brute-force searches exactly size " + ADDITIVE_START_K + ", keeps the best " + ADDITIVE_BEAM_WIDTH.toLocaleString() + " alloys, then grows one size at a time by inserting each material at the front or back of every surviving alloy. Only shows alloys of exactly your chosen max size — much cheaper than dynamic filter, but explores a narrower slice of the possibilities.";
+      warn.textContent = "Additive alloying brute-force searches every eligible material at exactly size " + ADDITIVE_START_K + ", keeps the best " + ADDITIVE_BEAM_WIDTH.toLocaleString() + " alloys, then grows one size at a time by inserting every material at the front or back of every surviving alloy (no materials are ever filtered out). Only shows alloys of exactly your chosen max size — much cheaper than dynamic filter, but explores a narrower slice of the possibilities.";
     } else {
       warn.hidden = true;
       warn.textContent = "";
@@ -1651,10 +1651,9 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       if (maxK < ADDITIVE_START_K) {
         box.textContent = "Additive alloying needs a max alloy size of at least " + ADDITIVE_START_K + ".";
       } else {
-        const initialPoolSize = Math.max(2, Math.round(candidateDefs.length * (1 - DYNAMIC_INITIAL_CUT_PERCENT)));
-        const totalAcrossRounds = estimateAdditiveTotalCombos(initialPoolSize, maxK, cfg);
-        box.textContent = "Additive alloying: cuts to ~" + initialPoolSize + " of " + candidateDefs.length +
-          " materials, then an estimated " + totalAcrossRounds.toLocaleString() +
+        const totalAcrossRounds = estimateAdditiveTotalCombos(candidateDefs.length, maxK, cfg);
+        box.textContent = "Additive alloying: tests all " + candidateDefs.length +
+          " materials, an estimated " + totalAcrossRounds.toLocaleString() +
           " combinations total (brute-force at size " + ADDITIVE_START_K + ", then growing to size " + maxK + ").";
       }
     } else {
@@ -1734,9 +1733,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
         resultEl.textContent = "Additive alloying needs a max alloy size of at least " + ADDITIVE_START_K + ".";
         return;
       }
-      const ordered = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
-      const initialKeepCount = Math.max(2, Math.round(candidateDefs.length * (1 - DYNAMIC_INITIAL_CUT_PERCENT)));
-      samplePool = ordered.slice(0, Math.min(initialKeepCount, ordered.length));
+      samplePool = candidateDefs;
       sampleK = ADDITIVE_START_K;
       projectedTotal = estimateAdditiveTotalCombos(samplePool.length, maxK, cfg);
     } else {
@@ -2243,19 +2240,17 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       msg.textContent = "Dynamic filter (" + scoringMode + "): cut " + candidateDefs.length + " down to " + initialPool.length + " materials before round 1…";
       doRound(initialPool, startK, 1);
     } else if (mode === "additive" && maxK >= ADDITIVE_START_K) {
-      // Initial cut: same standalone relevance scoring as dynamic filter uses,
-      // since there's no alloy performance data before round 1 yet. This pool
-      // stays fixed for every insertion step — only the alloy beam narrows.
-      const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
-      const initialKeepCount = Math.max(2, Math.round(candidateDefs.length * (1 - DYNAMIC_INITIAL_CUT_PERCENT)));
-      const pool = orderedByScore.slice(0, Math.min(initialKeepCount, orderedByScore.length));
+      // No pre-cut here: every eligible material is tested in round 1's
+      // brute force and stays available for every later growth round — only
+      // the alloy beam (not the material pool) narrows between rounds.
+      const pool = candidateDefs;
       const totalRounds = maxK - ADDITIVE_START_K + 1;
 
       function proceed(survivors, k, roundIndex, lastTotal) {
         if (k === maxK) {
           const ranked = rankItems(survivors, selectedStats);
-          finish(pool, ranked, lastTotal, "Additive alloying finished at size " + maxK + " with " + pool.length +
-            " of " + candidateDefs.length + " materials (beam width " + ADDITIVE_BEAM_WIDTH.toLocaleString() + ")");
+          finish(pool, ranked, lastTotal, "Additive alloying finished at size " + maxK + " with all " + pool.length +
+            " eligible materials (beam width " + ADDITIVE_BEAM_WIDTH.toLocaleString() + ")");
           return;
         }
         const nextK = k + 1;
@@ -2266,8 +2261,8 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
         });
       }
 
-      msg.textContent = "Additive alloying: cut " + candidateDefs.length + " down to " + pool.length +
-        " materials, starting brute-force search at size " + ADDITIVE_START_K + "…";
+      msg.textContent = "Additive alloying: testing all " + pool.length +
+        " eligible materials, starting brute-force search at size " + ADDITIVE_START_K + "…";
       runExactSizeSearch(pool, ADDITIVE_START_K, Object.assign({ progressPrefix: "Additive alloying — round 1 of " + totalRounds + " (size " + ADDITIVE_START_K + "): " }, baseOpts), (survivors, total) => {
         proceed(survivors, ADDITIVE_START_K, 1, total);
       });
