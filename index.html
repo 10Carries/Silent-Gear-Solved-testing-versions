@@ -541,6 +541,7 @@ main{ padding: 32px 0 60px; }
                 <option value="auto">Auto-narrow (recommended)</option>
                 <option value="dynamic-average">Dynamic filter (average alloy ranking)</option>
                 <option value="dynamic-best">Dynamic filter (best placement)</option>
+                <option value="additive">Additive alloying</option>
                 <option value="none">No narrowing (exhaustive)</option>
               </select>
             </label>
@@ -625,6 +626,8 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
   const DYNAMIC_MIN_PRUNE_PERCENT = 0.10; // dynamic filter always removes at least this much between rounds
   const DYNAMIC_COMBO_TARGET = 30000000; // dynamic filter prunes further than the minimum if needed to stay under this
   const ESTIMATE_SAMPLE_SIZE = 100000; // combinations sampled by the "Estimate time" button
+  const ADDITIVE_START_K = 4; // additive alloying's initial brute-force size
+  const ADDITIVE_BEAM_WIDTH = 10000; // additive alloying keeps this many alloys between rounds
   const CHUNK_SIZE = 4000;
 
   const SYNERGY_MULTI = 1.1;
@@ -1041,6 +1044,32 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     }
   }
 
+  // Generates combinations of exactly size k (not every size from 2 up to k).
+  // Used by additive alloying, which grows a fixed-size beam one size at a time.
+  function* combosOfExactSize(pool, k) {
+    const n = pool.length;
+    for (let p = 0; p < n; p++) {
+      for (const rest of multisetCombos(n, k - 1)) {
+        const combo = [pool[p]];
+        for (const ri of rest) combo.push(pool[ri]);
+        yield combo;
+      }
+    }
+  }
+
+  // For additive alloying's growth step: every surviving alloy, extended by
+  // every pool material inserted either as the new primary (first) or
+  // appended at the end (any non-primary position is equivalent, since only
+  // the primary slot's identity affects the result).
+  function* expandCandidates(survivorItems, pool) {
+    for (const survivor of survivorItems) {
+      for (const mat of pool) {
+        yield [mat].concat(survivor.materials);
+        yield survivor.materials.concat([mat]);
+      }
+    }
+  }
+
   // ---------------------------------------------------------
   // Relevance scoring + auto pool selection (replaces manual pick)
   // ---------------------------------------------------------
@@ -1339,7 +1368,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
   function updateNarrowModeAvailability() {
     const maxK = parseInt(alloySizeInput.value, 10);
     const sel = $("#narrowModeSelect");
-    ["dynamic-average", "dynamic-best"].forEach(val => {
+    ["dynamic-average", "dynamic-best", "additive"].forEach(val => {
       const opt = findOptionByValue(sel, val);
       if (opt) {
         opt.disabled = maxK <= 3;
@@ -1357,6 +1386,9 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     } else if (mode === "dynamic-average" || mode === "dynamic-best") {
       warn.hidden = false;
       warn.textContent = "Dynamic filter cuts 20% of materials up front, then runs full search rounds from size 3 up to your max, pruning at least 10% of materials between rounds (more if needed to stay under 30 million combinations next round) based on real alloy results — more thorough than auto-narrow, but slower.";
+    } else if (mode === "additive") {
+      warn.hidden = false;
+      warn.textContent = "Additive alloying cuts 20% of materials up front, brute-force searches exactly size " + ADDITIVE_START_K + ", keeps the best " + ADDITIVE_BEAM_WIDTH.toLocaleString() + " alloys, then grows one size at a time by inserting each material at the front or back of every surviving alloy. Only shows alloys of exactly your chosen max size — much cheaper than dynamic filter, but explores a narrower slice of the possibilities.";
     } else {
       warn.hidden = true;
       warn.textContent = "";
@@ -1581,6 +1613,14 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       .reduce((sum, r) => sum + estimateTotalForPool(r.n, r.k, cfg), 0);
   }
 
+  function estimateAdditiveTotalCombos(initialPoolSize, maxK, cfg) {
+    const round1Total = initialPoolSize * nMultichoose(initialPoolSize, ADDITIVE_START_K - 1);
+    const survivorCount = Math.min(ADDITIVE_BEAM_WIDTH, round1Total);
+    const expansionRoundTotal = survivorCount * initialPoolSize * 2;
+    const totalRounds = Math.max(1, maxK - ADDITIVE_START_K + 1);
+    return round1Total + Math.max(0, totalRounds - 1) * expansionRoundTotal;
+  }
+
   function updateComboEstimateHint() {
     const box = $("#comboEstimateHint");
     const selectedStats = Array.from(state.selectedStats);
@@ -1606,6 +1646,16 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
         box.textContent = "Dynamic filter: cuts to ~" + initialPoolSize + " of " + candidateDefs.length +
           " materials first, then an estimated " + totalAcrossRounds.toLocaleString() +
           " combinations total across all rounds through size " + maxK + " (narrows adaptively, so the real count may vary).";
+      }
+    } else if (mode === "additive") {
+      if (maxK < ADDITIVE_START_K) {
+        box.textContent = "Additive alloying needs a max alloy size of at least " + ADDITIVE_START_K + ".";
+      } else {
+        const initialPoolSize = Math.max(2, Math.round(candidateDefs.length * (1 - DYNAMIC_INITIAL_CUT_PERCENT)));
+        const totalAcrossRounds = estimateAdditiveTotalCombos(initialPoolSize, maxK, cfg);
+        box.textContent = "Additive alloying: cuts to ~" + initialPoolSize + " of " + candidateDefs.length +
+          " materials, then an estimated " + totalAcrossRounds.toLocaleString() +
+          " combinations total (brute-force at size " + ADDITIVE_START_K + ", then growing to size " + maxK + ").";
       }
     } else {
       const ordered = selectPool(candidateDefs, selectedStats, maxK, null);
@@ -1679,6 +1729,16 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       samplePool = ordered.slice(0, Math.min(initialKeepCount, ordered.length));
       sampleK = 3;
       projectedTotal = estimateDynamicTotalCombos(samplePool.length, maxK, cfg);
+    } else if (mode === "additive") {
+      if (maxK < ADDITIVE_START_K) {
+        resultEl.textContent = "Additive alloying needs a max alloy size of at least " + ADDITIVE_START_K + ".";
+        return;
+      }
+      const ordered = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
+      const initialKeepCount = Math.max(2, Math.round(candidateDefs.length * (1 - DYNAMIC_INITIAL_CUT_PERCENT)));
+      samplePool = ordered.slice(0, Math.min(initialKeepCount, ordered.length));
+      sampleK = ADDITIVE_START_K;
+      projectedTotal = estimateAdditiveTotalCombos(samplePool.length, maxK, cfg);
     } else {
       const ordered = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
       samplePool = trimPoolToBudget(ordered, forcedIds, maxK, cfg);
@@ -1689,7 +1749,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     resultEl.textContent = "Measuring…";
     $("#estimateTimeBtn").disabled = true;
 
-    const gen = comboGenerator(samplePool, sampleK, cfg);
+    const gen = mode === "additive" ? combosOfExactSize(samplePool, sampleK) : comboGenerator(samplePool, sampleK, cfg);
     const startTime = Date.now();
     let sampled = 0;
 
@@ -1740,6 +1800,146 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     }
     step();
   });
+
+  // Runs the full validity/maker/trait pipeline for one combo and returns the
+  // finished result item, or null if the combo isn't a valid alloy under the
+  // current settings. Shared by additive alloying's two round types.
+  function tryBuildResultItem(combo, opts) {
+    const { rankType, cfg, traitFilterSet, selectedStats } = opts;
+    const uniqueCount = new Set(combo.map(m => m.key)).size;
+    if (uniqueCount < 2) return null;
+    const sharedTypesSet = getSharedTypes(combo);
+    if (!sharedTypesSet.has(rankType)) return null;
+    const makerTags = getMakerTags(combo, cfg);
+    if (!makerTags) return null;
+    const sharedTypesArr = Array.from(sharedTypesSet);
+    if (traitFilterSet.size > 0) {
+      const comboTraits = extractComboTraits(combo, sharedTypesArr);
+      for (const t of traitFilterSet) { if (!comboTraits.has(t)) return null; }
+    }
+    const synergy = computeSynergy(combo);
+    const values = {};
+    selectedStats.forEach(stat => {
+      const raw = computeStatForType(combo, stat, rankType);
+      values[stat] = stat === "Harvest Tier" ? raw : raw * synergy;
+    });
+    return { materials: combo, synergy, values, sharedTypes: sharedTypesArr, rankType, makerTags, single: false };
+  }
+
+  function makeRunningScorer(selectedStats, runningRange) {
+    return item => {
+      let s = 0;
+      for (const stat of selectedStats) {
+        const r = runningRange[stat];
+        const range = r.max - r.min;
+        s += range > 0 ? (item.values[stat] - r.min) / range : 0;
+      }
+      return s / selectedStats.length;
+    };
+  }
+
+  // Additive alloying, step 1: brute-force search of exactly size k, keeping
+  // the best ADDITIVE_BEAM_WIDTH alloys as the starting beam.
+  function runExactSizeSearch(pool, k, opts, onComplete) {
+    const { selectedStats, progressPrefix } = opts;
+    const total = pool.length * nMultichoose(pool.length, k - 1);
+    const progressFill = $("#progressFill");
+    const progressLabel = $("#progressLabel");
+
+    const gen = combosOfExactSize(pool, k);
+    const runningRange = {};
+    selectedStats.forEach(stat => { runningRange[stat] = { min: Infinity, max: -Infinity }; });
+    const topK = new BoundedTopK(ADDITIVE_BEAM_WIDTH, makeRunningScorer(selectedStats, runningRange));
+
+    let processed = 0;
+    function step() {
+      let count = 0;
+      let res = gen.next();
+      while (!res.done && count < CHUNK_SIZE) {
+        const item = tryBuildResultItem(res.value, opts);
+        if (item) {
+          selectedStats.forEach(stat => {
+            const v = item.values[stat];
+            const r = runningRange[stat];
+            if (v < r.min) r.min = v;
+            if (v > r.max) r.max = v;
+          });
+          topK.offer(item);
+        }
+        processed++;
+        count++;
+        res = gen.next();
+      }
+      const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 100;
+      progressFill.style.width = pct + "%";
+      progressLabel.textContent = (progressPrefix || "") + processed.toLocaleString() + " / " + total.toLocaleString() +
+        " combinations checked (" + pct + "%) · keeping best " + topK.size.toLocaleString();
+      if (!res.done) {
+        setTimeout(step, 0);
+      } else {
+        onComplete(topK.toArray(), total);
+      }
+    }
+    step();
+  }
+
+  // Additive alloying, growth step: extends every surviving alloy by every
+  // pool material (inserted first or appended), keeping the best
+  // ADDITIVE_BEAM_WIDTH again. Cost per round is roughly
+  // survivors × poolSize × 2, regardless of alloy size — this is what keeps
+  // additive alloying cheap even at large max sizes.
+  function runExpansionRound(survivorItems, pool, opts, onComplete) {
+    const { selectedStats, progressPrefix } = opts;
+    const total = survivorItems.length * pool.length * 2;
+    const progressFill = $("#progressFill");
+    const progressLabel = $("#progressLabel");
+
+    const gen = expandCandidates(survivorItems, pool);
+    const runningRange = {};
+    selectedStats.forEach(stat => { runningRange[stat] = { min: Infinity, max: -Infinity }; });
+    const topK = new BoundedTopK(ADDITIVE_BEAM_WIDTH, makeRunningScorer(selectedStats, runningRange));
+    const seen = new Set();
+
+    function signatureOf(combo) {
+      return combo[0].id + "::" + combo.slice(1).map(m => m.id).sort().join(",");
+    }
+
+    let processed = 0;
+    function step() {
+      let count = 0;
+      let res = gen.next();
+      while (!res.done && count < CHUNK_SIZE) {
+        const combo = res.value;
+        const sig = signatureOf(combo);
+        if (!seen.has(sig)) {
+          seen.add(sig);
+          const item = tryBuildResultItem(combo, opts);
+          if (item) {
+            selectedStats.forEach(stat => {
+              const v = item.values[stat];
+              const r = runningRange[stat];
+              if (v < r.min) r.min = v;
+              if (v > r.max) r.max = v;
+            });
+            topK.offer(item);
+          }
+        }
+        processed++;
+        count++;
+        res = gen.next();
+      }
+      const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 100;
+      progressFill.style.width = pct + "%";
+      progressLabel.textContent = (progressPrefix || "") + processed.toLocaleString() + " / " + total.toLocaleString() +
+        " combinations checked (" + pct + "%) · keeping best " + topK.size.toLocaleString();
+      if (!res.done) {
+        setTimeout(step, 0);
+      } else {
+        onComplete(topK.toArray(), total);
+      }
+    }
+    step();
+  }
 
   // Runs one full chunked combination search over `pool` for sizes 2..roundMaxK.
   // If topKCap is set, keeps only the best-so-far topKCap items (bounded memory);
@@ -2042,6 +2242,35 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       }
       msg.textContent = "Dynamic filter (" + scoringMode + "): cut " + candidateDefs.length + " down to " + initialPool.length + " materials before round 1…";
       doRound(initialPool, startK, 1);
+    } else if (mode === "additive" && maxK >= ADDITIVE_START_K) {
+      // Initial cut: same standalone relevance scoring as dynamic filter uses,
+      // since there's no alloy performance data before round 1 yet. This pool
+      // stays fixed for every insertion step — only the alloy beam narrows.
+      const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
+      const initialKeepCount = Math.max(2, Math.round(candidateDefs.length * (1 - DYNAMIC_INITIAL_CUT_PERCENT)));
+      const pool = orderedByScore.slice(0, Math.min(initialKeepCount, orderedByScore.length));
+      const totalRounds = maxK - ADDITIVE_START_K + 1;
+
+      function proceed(survivors, k, roundIndex, lastTotal) {
+        if (k === maxK) {
+          const ranked = rankItems(survivors, selectedStats);
+          finish(pool, ranked, lastTotal, "Additive alloying finished at size " + maxK + " with " + pool.length +
+            " of " + candidateDefs.length + " materials (beam width " + ADDITIVE_BEAM_WIDTH.toLocaleString() + ")");
+          return;
+        }
+        const nextK = k + 1;
+        const prefix = "Additive alloying — round " + (roundIndex + 1) + " of " + totalRounds + " (growing to size " + nextK + "): ";
+        runExpansionRound(survivors, pool, Object.assign({ progressPrefix: prefix }, baseOpts), (nextSurvivors, roundTotal) => {
+          msg.textContent = "Round " + roundIndex + " of " + totalRounds + " done — kept " + nextSurvivors.length + " alloys at size " + nextK + ".";
+          setTimeout(() => proceed(nextSurvivors, nextK, roundIndex + 1, roundTotal), 0);
+        });
+      }
+
+      msg.textContent = "Additive alloying: cut " + candidateDefs.length + " down to " + pool.length +
+        " materials, starting brute-force search at size " + ADDITIVE_START_K + "…";
+      runExactSizeSearch(pool, ADDITIVE_START_K, Object.assign({ progressPrefix: "Additive alloying — round 1 of " + totalRounds + " (size " + ADDITIVE_START_K + "): " }, baseOpts), (survivors, total) => {
+        proceed(survivors, ADDITIVE_START_K, 1, total);
+      });
     } else {
       // Default / "auto" — also the safe fallback for any unrecognized mode value.
       const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
