@@ -221,6 +221,13 @@ main{ padding: 32px 0 60px; }
 }
 .chip-row input{ accent-color: var(--steel); }
 .chip-row label.checked{ border-color: var(--steel); color: var(--text); }
+.trait-filter-item{ display:flex; align-items:center; gap:4px; }
+.trait-level-input{
+  width: 48px; font-family: var(--font-mono); font-size: 12px; color: var(--text);
+  background: var(--bg-alt); border: 1px solid var(--border); border-radius: 20px;
+  padding: 4px 8px; text-align:center;
+}
+.trait-level-input::placeholder{ color: var(--text-faint); }
 
 /* Alloy config */
 .alloy-config{ background: var(--bg-alt); border:1px solid var(--border-soft); border-radius: var(--radius); padding: 18px; margin-bottom: 20px; }
@@ -706,6 +713,26 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     return s;
   }
 
+  function romanToInt(roman) {
+    const map = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+    let result = 0;
+    for (let i = 0; i < roman.length; i++) {
+      const cur = map[roman[i]];
+      const next = map[roman[i + 1]];
+      if (next && cur < next) result -= cur; else result += cur;
+    }
+    return result;
+  }
+
+  // Returns the numeric level of a trait string like "Flexible III" -> 3, or
+  // null if the trait has no roman-numeral level (e.g. "Bounce*").
+  function traitLevel(full) {
+    const s = full.trim().replace(/\*+$/, "").trim();
+    const m = s.match(/\s+([IVXLCDM]+)$/i);
+    if (!m) return null;
+    return romanToInt(m[1].toUpperCase());
+  }
+
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
   // ---------------------------------------------------------
@@ -886,36 +913,82 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     return combineTokenLists(tokenLists);
   }
 
+  // Returns a Map of base trait name -> highest level found (or null if that
+  // trait never appears with a parseable level) across every shared role.
+  // Used for trait-filter matching, where a minimum level may be required.
   function extractComboTraits(materials, sharedTypesArr) {
-    const set = new Set();
+    const map = new Map();
     for (const m of materials) {
       for (const t of sharedTypesArr) {
         const row = m.rows[t];
         if (row && row.traits) {
           row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
             const b = baseTraitName(tr);
-            if (b) set.add(b);
+            if (!b) return;
+            const lvl = traitLevel(tr);
+            const prev = map.has(b) ? map.get(b) : undefined;
+            if (prev === undefined || (lvl !== null && (prev === null || lvl > prev))) {
+              map.set(b, lvl);
+            }
           });
         }
       }
     }
-    return set;
+    return map;
   }
 
   // Traits for a single role only (used for display, since a hover tooltip for
   // "Coating" shouldn't list traits that only came from the "Main" role).
+  // Returns [{name, level}], sorted alphabetically, level null if unparseable.
   function extractTraitsForType(materials, type) {
-    const set = new Set();
+    const map = new Map();
     for (const m of materials) {
       const row = m.rows[type];
       if (row && row.traits) {
         row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
           const b = baseTraitName(tr);
-          if (b) set.add(b);
+          if (!b) return;
+          const lvl = traitLevel(tr);
+          const prev = map.has(b) ? map.get(b) : undefined;
+          if (prev === undefined || (lvl !== null && (prev === null || lvl > prev))) {
+            map.set(b, lvl);
+          }
         });
       }
     }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
+    return Array.from(map.entries())
+      .map(([name, level]) => ({ name, level }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function formatTraitLabel(name, level) {
+    return level === null || level === undefined ? name : name + " (" + level + ")";
+  }
+
+  // traitFilterMap: Map<traitName, minLevel|null>. comboTraits: Map<traitName, level|null>.
+  // Requires EVERY selected trait to be present, at or above its minimum level if one was given.
+  function passesTraitFilter(comboTraits, traitFilterMap) {
+    for (const [name, minLevel] of traitFilterMap) {
+      if (!comboTraits.has(name)) return false;
+      if (minLevel !== null && minLevel !== undefined) {
+        const lvl = comboTraits.get(name);
+        if (lvl === null || lvl < minLevel) return false;
+      }
+    }
+    return true;
+  }
+
+  // Same idea, but true if ANY selected trait matches — used to decide which
+  // materials get force-kept in the auto-narrowed pool.
+  function passesAnyTraitFilter(traitLevels, traitFilterMap) {
+    for (const [name, minLevel] of traitFilterMap) {
+      if (traitLevels.has(name)) {
+        if (minLevel === null || minLevel === undefined) return true;
+        const lvl = traitLevels.get(name);
+        if (lvl !== null && lvl >= minLevel) return true;
+      }
+    }
+    return false;
   }
 
   function allUniqueBaseTraits(rows) {
@@ -1216,6 +1289,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
 
   const materialFilterSelection = new Set(); // ids chosen in the whitelist/blacklist picker
   const traitFilterSelection = new Set();
+  const traitFilterMinLevels = new Map(); // trait name -> number|null (null = any level)
 
   // ---------------------------------------------------------
   // DOM helpers
@@ -1268,6 +1342,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
   function initAppUI() {
     materialFilterSelection.clear();
     traitFilterSelection.clear();
+    traitFilterMinLevels.clear();
     buildStatChecklist();
     buildSingleTypeFilter();
     buildRankTypeDropdown();
@@ -1479,22 +1554,47 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     wrap.innerHTML = "";
     traits.forEach(trait => {
       const id = "tf_" + trait.replace(/[^a-z0-9]/gi, "_");
+      const item = el("span", { class: "trait-filter-item" });
       const label = el("label", { for: id });
       const input = el("input", { type: "checkbox", id });
-      input.addEventListener("change", () => {
-        if (input.checked) traitFilterSelection.add(trait);
-        else traitFilterSelection.delete(trait);
-        label.classList.toggle("checked", input.checked);
-      });
       label.appendChild(input);
       label.appendChild(document.createTextNode(trait));
-      wrap.appendChild(label);
+      item.appendChild(label);
+
+      const levelInput = el("input", { type: "number", min: "1", step: "1", placeholder: "any" , class: "trait-level-input"});
+      levelInput.hidden = true;
+      item.appendChild(levelInput);
+
+      input.addEventListener("change", () => {
+        if (input.checked) {
+          traitFilterSelection.add(trait);
+          levelInput.hidden = false;
+        } else {
+          traitFilterSelection.delete(trait);
+          traitFilterMinLevels.delete(trait);
+          levelInput.hidden = true;
+          levelInput.value = "";
+        }
+        label.classList.toggle("checked", input.checked);
+      });
+      levelInput.addEventListener("input", () => {
+        const v = parseInt(levelInput.value, 10);
+        if (levelInput.value.trim() === "" || isNaN(v)) traitFilterMinLevels.delete(trait);
+        else traitFilterMinLevels.set(trait, v);
+      });
+
+      wrap.appendChild(item);
     });
     $("#traitFilterClearBtn").addEventListener("click", () => {
       traitFilterSelection.clear();
-      $$("#traitFilterList input").forEach(input => {
+      traitFilterMinLevels.clear();
+      $$("#traitFilterList input[type=checkbox]").forEach(input => {
         input.checked = false;
         input.closest("label").classList.remove("checked");
+      });
+      $$("#traitFilterList input[type=number]").forEach(input => {
+        input.hidden = true;
+        input.value = "";
       });
     });
   }
@@ -1712,7 +1812,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     const maxK = parseInt(alloySizeInput.value, 10);
     const rankType = $("#rankTypeSelect").value;
     const mode = $("#narrowModeSelect").value;
-    const traitFilterSet = new Set(traitFilterSelection);
+    const traitFilterSet = new Map(Array.from(traitFilterSelection).map(name => [name, traitFilterMinLevels.has(name) ? traitFilterMinLevels.get(name) : null]));
     const candidateDefs = getTypeAndFilterCandidates();
 
     if (candidateDefs.length === 0) {
@@ -1726,8 +1826,15 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       candidateDefs.forEach(d => {
         const row = d.rows[rankType];
         if (!row || !row.traits) return;
-        const traits = row.traits.split(",").map(s => s.trim()).filter(Boolean).map(baseTraitName);
-        if (traits.some(t => traitFilterSet.has(t))) forcedIds.add(d.id);
+        const levels = new Map();
+        row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
+          const b = baseTraitName(tr);
+          if (!b) return;
+          const lvl = traitLevel(tr);
+          const prev = levels.has(b) ? levels.get(b) : undefined;
+          if (prev === undefined || (lvl !== null && (prev === null || lvl > prev))) levels.set(b, lvl);
+        });
+        if (passesAnyTraitFilter(levels, traitFilterSet)) forcedIds.add(d.id);
       });
     }
 
@@ -1783,7 +1890,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
               let passTraits = true;
               if (traitFilterSet.size > 0) {
                 const comboTraits = extractComboTraits(combo, sharedTypesArr);
-                for (const t of traitFilterSet) { if (!comboTraits.has(t)) { passTraits = false; break; } }
+                passTraits = passesTraitFilter(comboTraits, traitFilterSet);
               }
               if (passTraits) {
                 const synergy = computeSynergy(combo);
@@ -1830,7 +1937,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     const sharedTypesArr = Array.from(sharedTypesSet);
     if (traitFilterSet.size > 0) {
       const comboTraits = extractComboTraits(combo, sharedTypesArr);
-      for (const t of traitFilterSet) { if (!comboTraits.has(t)) return null; }
+      if (!passesTraitFilter(comboTraits, traitFilterSet)) return null;
     }
     const synergy = computeSynergy(combo);
     const values = {};
@@ -2004,7 +2111,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
               let passTraits = true;
               if (traitFilterSet.size > 0) {
                 const comboTraits = extractComboTraits(combo, sharedTypesArr);
-                for (const t of traitFilterSet) { if (!comboTraits.has(t)) { passTraits = false; break; } }
+                passTraits = passesTraitFilter(comboTraits, traitFilterSet);
               }
               if (passTraits) {
                 const synergy = computeSynergy(combo);
@@ -2089,7 +2196,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
               let passTraits = true;
               if (traitFilterSet.size > 0) {
                 const comboTraits = extractComboTraits(combo, sharedTypesArr);
-                for (const t of traitFilterSet) { if (!comboTraits.has(t)) { passTraits = false; break; } }
+                passTraits = passesTraitFilter(comboTraits, traitFilterSet);
               }
               if (passTraits) {
                 const synergy = computeSynergy(combo);
@@ -2173,7 +2280,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     const maxK = parseInt(alloySizeInput.value, 10);
     const rankType = $("#rankTypeSelect").value;
     const mode = $("#narrowModeSelect").value;
-    const traitFilterSet = new Set(traitFilterSelection);
+    const traitFilterSet = new Map(Array.from(traitFilterSelection).map(name => [name, traitFilterMinLevels.has(name) ? traitFilterMinLevels.get(name) : null]));
 
     const candidateDefs = getTypeAndFilterCandidates();
 
@@ -2193,8 +2300,15 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       candidateDefs.forEach(d => {
         const row = d.rows[rankType];
         if (!row || !row.traits) return;
-        const traits = row.traits.split(",").map(s => s.trim()).filter(Boolean).map(baseTraitName);
-        if (traits.some(t => traitFilterSet.has(t))) forcedIds.add(d.id);
+        const levels = new Map();
+        row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
+          const b = baseTraitName(tr);
+          if (!b) return;
+          const lvl = traitLevel(tr);
+          const prev = levels.has(b) ? levels.get(b) : undefined;
+          if (prev === undefined || (lvl !== null && (prev === null || lvl > prev))) levels.set(b, lvl);
+        });
+        if (passesAnyTraitFilter(levels, traitFilterSet)) forcedIds.add(d.id);
       });
     }
 
@@ -2410,7 +2524,8 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
       body.appendChild(statValues);
 
       const mainTraits = extractTraitsForType(mats, item.rankType);
-      body.appendChild(el("div", { class: "trait-line" }, [document.createTextNode("Traits: " + (mainTraits.length ? mainTraits.join(", ") : "—"))]));
+      const mainTraitsText = mainTraits.length ? mainTraits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : "—";
+      body.appendChild(el("div", { class: "trait-line" }, [document.createTextNode("Traits: " + mainTraitsText)]));
 
       const otherTypes = item.sharedTypes.filter(t => t !== item.rankType).sort();
       if (otherTypes.length) {
@@ -2425,7 +2540,8 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
             tooltip.appendChild(el("span", { class: "tt-line" }, [document.createTextNode(stat + ": " + formatNum(val))]));
           });
           const typeTraits = extractTraitsForType(mats, type);
-          tooltip.appendChild(el("span", { class: "tt-line tt-traits" }, [document.createTextNode("Traits: " + (typeTraits.length ? typeTraits.join(", ") : "—"))]));
+          const typeTraitsText = typeTraits.length ? typeTraits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : "—";
+          tooltip.appendChild(el("span", { class: "tt-line tt-traits" }, [document.createTextNode("Traits: " + typeTraitsText)]));
           chip.appendChild(tooltip);
           chipsRow.appendChild(chip);
         });
@@ -2479,6 +2595,7 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     state.alloy.computed = false;
     materialFilterSelection.clear();
     traitFilterSelection.clear();
+    traitFilterMinLevels.clear();
     $("#app").hidden = true;
     $("#uploadSection").hidden = false;
     $("#uploadError").hidden = true;
