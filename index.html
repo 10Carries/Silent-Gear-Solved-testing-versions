@@ -965,6 +965,28 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
     return level === null || level === undefined ? name : name + " (" + level + ")";
   }
 
+  // Same idea as extractTraitsForType, but for a single row directly (used by
+  // the Single Materials tab, where items are raw rows, not MaterialDefs).
+  function traitsForRow(row) {
+    const map = new Map();
+    if (row.traits) {
+      row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
+        const b = baseTraitName(tr);
+        if (!b) return;
+        const lvl = traitLevel(tr);
+        const prev = map.has(b) ? map.get(b) : undefined;
+        if (prev === undefined || (lvl !== null && (prev === null || lvl > prev))) map.set(b, lvl);
+      });
+    }
+    return Array.from(map.entries())
+      .map(([name, level]) => ({ name, level }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function formatTraitList(traits) {
+    return traits.length ? traits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : "—";
+  }
+
   // traitFilterMap: Map<traitName, minLevel|null>. comboTraits: Map<traitName, level|null>.
   // Requires EVERY selected trait to be present, at or above its minimum level if one was given.
   function passesTraitFilter(comboTraits, traitFilterMap) {
@@ -2513,6 +2535,31 @@ const SAMPLE_TSV = "Pack\tName\tType\tID\tParent\tCategories\tAdditive\tTraits\t
         statValues.appendChild(span);
       });
       body.appendChild(statValues);
+
+      const row = mats[0];
+      body.appendChild(el("div", { class: "trait-line" }, [document.createTextNode("Traits: " + formatTraitList(traitsForRow(row)))]));
+
+      const def = state.materialDefs.find(d => d.id === row.id);
+      if (def) {
+        const otherTypes = Object.keys(def.rows).filter(t => t !== row.type).sort();
+        if (otherTypes.length) {
+          const chipsRow = el("div", { class: "type-chips-row" });
+          otherTypes.forEach(type => {
+            const otherRow = def.rows[type];
+            const chip = el("span", { class: "type-chip", tabindex: "0" }, [document.createTextNode(type)]);
+            const tooltip = el("div", { class: "type-tooltip" });
+            tooltip.appendChild(el("span", { class: "tt-title" }, [document.createTextNode("As " + type)]));
+            selectedStats.forEach(stat => {
+              const val = computeStatSingle(otherRow, stat);
+              tooltip.appendChild(el("span", { class: "tt-line" }, [document.createTextNode(stat + ": " + formatNum(val))]));
+            });
+            tooltip.appendChild(el("span", { class: "tt-line tt-traits" }, [document.createTextNode("Traits: " + formatTraitList(traitsForRow(otherRow)))]));
+            chip.appendChild(tooltip);
+            chipsRow.appendChild(chip);
+          });
+          body.appendChild(chipsRow);
+        }
+      }
     } else {
       body.appendChild(el("div", { class: "type-stat-heading" }, [document.createTextNode("As " + item.rankType)]));
       const statValues = el("div", { class: "stat-values" });
