@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Silent Gear Solved — Material &amp; Alloy Calculator</title>
+<title>Silent Gear Solved &amp; Alloy Calculator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -389,7 +389,7 @@ main{ padding: 32px 0 60px; }
     <div class="brand">
       <span class="eyebrow">Silent Gear · Material Tool</span>
       <h1>Silent Gear Solved</h1>
-      <p class="tagline">Drop in your material export, mark what you value, and it'll rank every material — and every valid forged alloy — from best to worst.</p>
+      <p class="tagline">Drop in your material export, use the filters below, and it'll rank every material and every valid forged alloy from best to worst.</p>
     </div>
     <div class="furnace-signature" aria-hidden="true">
       <svg viewBox="0 0 120 120" width="90" height="90">
@@ -410,7 +410,7 @@ main{ padding: 32px 0 60px; }
       <span class="step-tag">01</span>
       <h2>Load a material export</h2>
     </div>
-    <p class="hint">Tab‑separated (.tsv) file, first row = column headers. Works with the export from any modpack — it isn't tied to any fixed material list.</p>
+    <p class="hint">Upload your tsv file here. Gotten by using '/sgear mats dump' in any modpack with silent gears installed.</p>
 
     <label id="dropzone" for="fileInput" class="dropzone">
       <input type="file" id="fileInput" accept=".tsv,.txt,text/tab-separated-values" hidden>
@@ -431,7 +431,7 @@ main{ padding: 32px 0 60px; }
 
     <div class="data-strip panel">
       <div>
-        <strong id="dataFileName">—</strong>
+        <strong id="dataFileName"></strong>
         <span id="dataSummary" class="muted"></span>
       </div>
       <button id="reloadBtn" class="btn btn-ghost btn-sm" type="button">Load a different file</button>
@@ -443,7 +443,7 @@ main{ padding: 32px 0 60px; }
         <span class="step-tag">02</span>
         <h2>What do you value?</h2>
       </div>
-      <p class="hint">Pick the stats to rank on — highest final value wins. Both tabs below use this same list.</p>
+      <p class="hint">Pick the stats to rank by, highest final value wins.</p>
       <div class="checklist-toolbar">
         <button id="statsAllBtn" class="btn btn-ghost btn-sm" type="button">Select all</button>
         <button id="statsNoneBtn" class="btn btn-ghost btn-sm" type="button">Clear</button>
@@ -578,31 +578,12 @@ main{ padding: 32px 0 60px; }
 
 </main>
 
-<footer class="site-footer">
-  <div class="wrap">
-    <details>
-      <summary>How the numbers — and the alloy rules — are calculated</summary>
-      <div class="explainer">
-        <p><strong>Per‑material values.</strong> Each cell in your file is read as one or more tokens: a plain number averages in as a base value; <code>+N</code> adds flat; <code>N%</code> with a sign scales the running total; a bare <code>N%</code> averages in as a fraction; <code>xN</code> multiplies the total; a trailing <code>Nx</code> averages in as a multiplier baseline; and <code>name (N)</code> (used for Rarity / Harvest Tier) reads the number in parentheses.</p>
-        <p><strong>Which materials can alloy together.</strong> A material can be a Coating, Grip, Main, etc. depending on which rows it has in your file. Two or more materials can only be alloyed if they share at least one of those roles (in‑game logic, recreated from <code>AlloyMakerBlockEntity</code>), and a shared role is dropped if every material in the recipe is flagged "Additive" for it. Whatever roles survive are the only ones the resulting alloy keeps — so combining Iron and Gold keeps whatever they both do, but drops "Coating" since Iron can't be one.</p>
-        <p><strong>Combining an alloy.</strong> An alloy needs at least 2 <em>different</em> materials — a stack of six of the same material isn't an alloy, so those combinations are excluded entirely. For every surviving shared role, every material's token for that role is pooled, in the order the materials were chosen. Whichever material comes first sets the "primary" baseline that weights every other averaged token — so a different pick for the first slot changes the result, same as in‑game. Materials after the first are treated as an unordered group, matching how the weighting math behaves for anything past the primary slot. <strong>Harvest Tier is the one exception</strong> — it isn't averaged at all, it simply takes the highest tier among the materials used.</p>
-        <p><strong>Different roles, different stats.</strong> The same materials produce different numbers depending on which role they're filling — Gold+Netherite as a Coating behaves nothing like Gold+Netherite as a Main. Each result lists every surviving role separately with its own stat values, rather than blending them into one number. Ranking is based on whichever role is used as "primary" for that purpose: Main if the alloy keeps it (since it carries most combat/armor stats), otherwise the first surviving role alphabetically — marked in the results.</p>
-        <p><strong>Synergy.</strong> Recreated from the mod's own formula: a bonus for using more distinct materials, a penalty if the parts share no common category, a small bonus for categories shared by more than one part, and a small penalty scaled by how far each part's Rarity sits from the first part's Rarity. Synergy is clamped between 0.1x and 2.0x, and isn't applied to Harvest Tier. Traits are shown/filterable for reference but their exact mechanical effects aren't factored into the math, since that logic isn't data‑driven in the export.</p>
-        <p><strong>Which station makes it.</strong> Four stations exist, each accepting different material categories: the <strong>Alloy Forge / Metal Alloyer</strong> (Metal and/or Dust), the <strong>Super Mixer</strong> (any category, added in version 4.0.2), the <strong>Recrystalizer</strong> (Gem and/or Dust), and the <strong>Refabricator</strong> (Slime, Fiber, and/or Cloth). Every material in a recipe must match a station's accepted categories for that station to work. All four are slot‑limited (4 slots before version 4.1.5, 6 from 4.1.5 on — except the Super Mixer, which goes from 4 to 8), and you can turn any station off if you don't have access to it. Set your version above and untick any machines you can't use.</p>
-        <p><strong>Ranking.</strong> For every stat you selected, every material/alloy gets a rank — highest final value = rank 1. Ranks across all your selected stats are averaged, and the final list is sorted with the lowest average rank (i.e. the best overall) first.</p>
-        <p><strong>Search strategy.</strong> Order‑sensitive combinations with repeats allowed grow explosively, so there are three ways to handle it. <strong>Auto‑narrow</strong> scores every eligible material by how strong it is, on its own, across your selected stats, then keeps as many top scorers as fit inside a combination budget (at least 15 materials are always kept, and whitelisted materials are always kept regardless of score). <strong>Dynamic filter</strong> is more thorough: it runs a full, unnarrowed search at alloy size 3, drops the bottom 10% of materials based on how well they actually performed in that search, then repeats at size 4, 5, and so on up to your chosen max size — each round's pruning is based on real combination results rather than a single material's standalone stats. <strong>No narrowing</strong> checks every single eligible combination with no pool reduction at all; since that can be billions of combinations, it keeps only the best 1,000 found so far in memory at any point (approximated with a running best‑so‑far comparison), discarding a worse one whenever a better one turns up, so the search can run to completion without crashing the tab. All three are heuristics except "no narrowing," which is a true exhaustive search of your current filters — none of them guarantee the single best possible alloy when narrowed, but auto‑narrow and dynamic filter get you dramatically closer than manual testing, in far less time.</p>
-      </div>
-    </details>
-    <p class="foot-note">Runs entirely in your browser — nothing you upload leaves your machine.</p>
-  </div>
-</footer>
-
 <script>
 (function(){
   try {
 
 /* ============================================================
-   Silent Gear Solved — material / alloy ranking calculator
+   Silent Gear Solved: material / alloy ranking calculator
    Fully generic: works with any material export TSV that shares
    the same column layout (header row + one row per material entry).
    ============================================================ */
@@ -655,7 +636,7 @@ main{ padding: 32px 0 60px; }
     const missing = REQUIRED_HEADERS.filter(h => !headers.includes(h));
     if (missing.length) {
       throw new Error(
-        "This doesn't look like a material export — missing column(s): " + missing.join(", ") +
+        "This doesn't look like a material export, missing column(s): " + missing.join(", ") +
         ". Expected a header row with at least Name, Type, and ID."
       );
     }
@@ -980,7 +961,7 @@ main{ padding: 32px 0 60px; }
   }
 
   function formatTraitList(traits) {
-    return traits.length ? traits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : "—";
+    return traits.length ? traits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : ", ";
   }
 
   // traitFilterMap: Map<traitName, minLevel|null>. comboTraits: Map<traitName, level|null>.
@@ -996,7 +977,7 @@ main{ padding: 32px 0 60px; }
     return true;
   }
 
-  // Same idea, but true if ANY selected trait matches — used to decide which
+  // Same idea, but true if ANY selected trait matches, used to decide which
   // materials get force-kept in the auto-narrowed pool.
   function passesAnyTraitFilter(traitLevels, traitFilterMap) {
     for (const [name, minLevel] of traitFilterMap) {
@@ -1346,7 +1327,7 @@ main{ padding: 32px 0 60px; }
       $("#dataFileName").textContent = label;
       const nonExample = state.rows.filter(r => !r.isExample).length;
       $("#dataSummary").textContent =
-        " — " + state.rows.length + " rows loaded (" + nonExample + " usable) across " +
+        ", " + state.rows.length + " rows loaded (" + nonExample + " usable) across " +
         state.materialDefs.length + " unique materials";
       $("#uploadSection").hidden = true;
       $("#app").hidden = false;
@@ -1476,13 +1457,13 @@ main{ padding: 32px 0 60px; }
     const warn = $("#narrowModeWarning");
     if (mode === "none") {
       warn.hidden = false;
-      warn.textContent = "No narrowing checks every eligible combination with no pool reduction — this can take a LOT of time. It keeps only the best " + EXHAUSTIVE_TOP_K.toLocaleString() + " alloys found so far in memory, so it can finish without crashing the tab.";
+      warn.textContent = "No narrowing checks every possible alloy combination. This can take a LOT of time.";
     } else if (mode === "dynamic") {
       warn.hidden = false;
-      warn.textContent = "Dynamic filter cuts 20% of materials up front, then runs full search rounds from size 3 up to your max, pruning at least 10% of materials between rounds (more if needed to stay under 30 million combinations next round) based on real alloy results — more thorough than auto-narrow, but slower.";
+      warn.textContent = "Dynamic filter should find the best alloy without searching every combination. I personally prefer additive alloying, it should be just as good but faster run time.";
     } else if (mode === "additive") {
       warn.hidden = false;
-      warn.textContent = "Additive alloying brute-force searches every eligible material at exactly size " + ADDITIVE_START_K + ", keeps the best " + ADDITIVE_BEAM_WIDTH.toLocaleString() + " alloys, then grows one size at a time by inserting every material at the front or back of every surviving alloy (no materials are ever filtered out). Only shows alloys of exactly your chosen max size — much cheaper than dynamic filter, but explores a narrower slice of the possibilities.";
+      warn.textContent = "This should find the best alloy for you in just a couple minutes (at most) if I don't suck at coding.";
     } else {
       warn.hidden = true;
       warn.textContent = "";
@@ -1681,14 +1662,14 @@ main{ padding: 32px 0 60px; }
       return m.label + ": " + cfg[m.key].slots + " slots.";
     });
     let msg = parts.join(" ");
-    if (feasible === 0) msg += " No machines are currently enabled — nothing can be made.";
+    if (feasible === 0) msg += "You didn't select any alloying machines so how will you make an alloy???.";
     else if (requested > feasible) msg += " Sizes above " + feasible + " won't produce any results with your current settings.";
     $("#slotHint").textContent = msg;
   }
 
   // Materials that don't even have the selected role can never keep it as a
-  // shared type, so they're excluded up front — this also means a whitelist
-  // is automatically narrowed to only its type-compatible members.
+  // shared type, so they're excluded up front. This also means a whitelist
+  // is automatically narrowed to only its type compatible members.
   function getTypeAndFilterCandidates() {
     const type = $("#rankTypeSelect").value;
     let pool = state.materialDefs.filter(d => !!d.rows[type]);
@@ -1704,7 +1685,7 @@ main{ padding: 32px 0 60px; }
     let modeText;
     if (mode === "auto") modeText = " before auto-narrowing.";
     else if (mode === "dynamic") modeText = " before dynamic-filter's initial cut.";
-    else modeText = " (no narrowing — all of these are searched).";
+    else modeText = " (no narrowing, all of these are searched).";
     $("#eligibilityHint").textContent = pool.length + " material(s) currently eligible" + modeText;
     updateComboEstimateHint();
   }
@@ -1770,7 +1751,7 @@ main{ padding: 32px 0 60px; }
 
     if (mode === "none") {
       const total = estimateTotalForPool(candidateDefs.length, maxK, cfg);
-      box.textContent = total.toLocaleString() + " combinations possible with no narrowing — this is what will actually be checked.";
+      box.textContent = total.toLocaleString() + " combinations possible with no narrowing.";
     } else if (mode === "dynamic") {
       if (maxK <= 3) {
         box.textContent = "Dynamic filter needs a max alloy size above 3.";
@@ -2027,8 +2008,7 @@ main{ padding: 32px 0 60px; }
   // Additive alloying, growth step: extends every surviving alloy by every
   // pool material (inserted first or appended), keeping the best
   // ADDITIVE_BEAM_WIDTH again. Cost per round is roughly
-  // survivors × poolSize × 2, regardless of alloy size — this is what keeps
-  // additive alloying cheap even at large max sizes.
+  // survivors × poolSize × 2
   function runExpansionRound(survivorItems, pool, opts, onComplete) {
     const { selectedStats, progressPrefix } = opts;
     const total = survivorItems.length * pool.length * 2;
@@ -2039,13 +2019,6 @@ main{ padding: 32px 0 60px; }
     const runningRange = {};
     selectedStats.forEach(stat => { runningRange[stat] = { min: Infinity, max: -Infinity }; });
     const topK = new BoundedTopK(ADDITIVE_BEAM_WIDTH, makeRunningScorer(selectedStats, runningRange));
-
-    // Note: no dedup set here on purpose. A per-candidate signature set would
-    // grow with every candidate checked (tens of millions for a wide beam),
-    // which is exactly the kind of unbounded memory growth this whole
-    // beam-search approach exists to avoid. Occasionally the same alloy may
-    // be reached via two different parent/insertion paths and show up twice
-    // in the beam — a harmless cosmetic redundancy, not a correctness bug.
 
     let processed = 0;
     function step() {
@@ -2085,7 +2058,7 @@ main{ padding: 32px 0 60px; }
   // otherwise accumulates every valid result in a plain array. Calls
   // onComplete(rankedResults, totalChecked) once the whole pool has been scanned.
   // Runs one full chunked pass over `pool` at exactly size k purely to score
-  // materials by how they actually perform in combinations — no combo objects
+  // materials by how they actually perform in combinations. No combo objects
   // are retained (just a running per-stat range and a small per-material sum/
   // count/best accumulator), so this stays cheap and memory-safe regardless of
   // how many combinations exist, unlike sampling from a bounded top-K survivor
@@ -2367,7 +2340,7 @@ main{ padding: 32px 0 60px; }
       const totalRounds = Math.max(1, maxK - startK + 1);
 
       function doRound(pool, k, roundIndex) {
-        const prefix = "Dynamic filter — round " + roundIndex + " of " + totalRounds + " (alloy size " + k + "): ";
+        const prefix = "Dynamic filter: round " + roundIndex + " of " + totalRounds + " (alloy size " + k + "): ";
         if (k >= maxK) {
           // Final round: a real search that produces the actual displayed results.
           runComboSearchRound(pool, k, Object.assign({ topKCap: EXHAUSTIVE_TOP_K, progressPrefix: prefix }, baseOpts), (ranked, total) => {
@@ -2386,8 +2359,8 @@ main{ padding: 32px 0 60px; }
       doRound(initialPool, startK, 1);
     } else if (mode === "additive" && maxK >= ADDITIVE_START_K) {
       // No pre-cut here: every eligible material is tested in the starting
-      // round's brute force and stays available for every later growth round
-      // — only the alloy beam (not the material pool) narrows between rounds.
+      // round's brute force and stays available for every later growth round.
+      // Only the alloy beam (not the material pool) narrows between rounds.
       const pool = candidateDefs;
       const totalRounds = maxK - ADDITIVE_START_K + 1;
       const strategy = chooseAdditiveStartStrategy(pool.length);
@@ -2400,28 +2373,28 @@ main{ padding: 32px 0 60px; }
           return;
         }
         const nextK = k + 1;
-        const prefix = "Additive alloying — round " + (roundIndex + 1) + " of " + totalRounds + " (growing to size " + nextK + "): ";
+        const prefix = "Additive alloying: round " + (roundIndex + 1) + " of " + totalRounds + " (growing to size " + nextK + "): ";
         runExpansionRound(survivors, pool, Object.assign({ progressPrefix: prefix }, baseOpts), (nextSurvivors, roundTotal) => {
           setTimeout(() => proceed(nextSurvivors, nextK, roundIndex + 1, roundTotal), 0);
         });
       }
 
       if (strategy.useVia3) {
-        // Cheaper for this many materials: brute-force the much smaller size-3
-        // space with a wide beam, then grow that to size 4 via insertion —
+        // Cheaper for this many materials: brute force the smaller size, 3
+        // space with a wide beam, then grow that to size 4 via insertion
         // landing in the same "beam of alloys at size 4" state proceed() expects.
-        runExactSizeSearch(pool, ADDITIVE_ALT_START_K, Object.assign({ beamWidth: ADDITIVE_ALT_BEAM_WIDTH, progressPrefix: "Additive alloying — pre-round (size " + ADDITIVE_ALT_START_K + "): " }, baseOpts), (survivorsAt3) => {
-          runExpansionRound(survivorsAt3, pool, Object.assign({ progressPrefix: "Additive alloying — round 1 of " + totalRounds + " (growing to size " + ADDITIVE_START_K + "): " }, baseOpts), (survivorsAt4, total4) => {
+        runExactSizeSearch(pool, ADDITIVE_ALT_START_K, Object.assign({ beamWidth: ADDITIVE_ALT_BEAM_WIDTH, progressPrefix: "Additive alloying pre-round (size " + ADDITIVE_ALT_START_K + "): " }, baseOpts), (survivorsAt3) => {
+          runExpansionRound(survivorsAt3, pool, Object.assign({ progressPrefix: "Additive alloying: round 1 of " + totalRounds + " (growing to size " + ADDITIVE_START_K + "): " }, baseOpts), (survivorsAt4, total4) => {
             proceed(survivorsAt4, ADDITIVE_START_K, 1, total4);
           });
         });
       } else {
-        runExactSizeSearch(pool, ADDITIVE_START_K, Object.assign({ beamWidth: ADDITIVE_BEAM_WIDTH, progressPrefix: "Additive alloying — round 1 of " + totalRounds + " (size " + ADDITIVE_START_K + "): " }, baseOpts), (survivors, total) => {
+        runExactSizeSearch(pool, ADDITIVE_START_K, Object.assign({ beamWidth: ADDITIVE_BEAM_WIDTH, progressPrefix: "Additive alloying: round 1 of " + totalRounds + " (size " + ADDITIVE_START_K + "): " }, baseOpts), (survivors, total) => {
           proceed(survivors, ADDITIVE_START_K, 1, total);
         });
       }
     } else {
-      // Default / "auto" — also the safe fallback for any unrecognized mode value.
+      // Default / "auto", also the safe fallback for any unrecognized mode value.
       const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
       const pool = trimPoolToBudget(orderedByScore, forcedIds, maxK, cfg);
       runComboSearchRound(pool, maxK, Object.assign({ topKCap: null, progressPrefix: "" }, baseOpts), (ranked, total) => {
@@ -2448,7 +2421,7 @@ main{ padding: 32px 0 60px; }
     }
     if (st.ranked.length === 0) {
       container.appendChild(el("p", { class: "hint" }, [document.createTextNode(
-        which === "alloy" ? "No valid alloys found yet — set your filters and click \u201cApply filters & compute rankings.\u201d" : "No materials match the current filters."
+        which === "alloy" ? "No valid alloys found yet. Set your filters and click \u201cApply filters & compute rankings.\u201d" : "No materials match the current filters."
       )]));
       pagerEl.innerHTML = "";
       return;
@@ -2520,7 +2493,7 @@ main{ padding: 32px 0 60px; }
       const compLine = compParts.join(" + ") + "  ·  keeps: " + (item.sharedTypes || []).join(", ");
       body.appendChild(el("div", { class: "composition" }, [document.createTextNode(compLine)]));
     } else {
-      body.appendChild(el("div", { class: "composition" }, [document.createTextNode(mats[0].type + " · " + (mats[0].categories.join(", ") || "—"))]));
+      body.appendChild(el("div", { class: "composition" }, [document.createTextNode(mats[0].type + " · " + (mats[0].categories.join(", ") || ", "))]));
     }
 
     if (item.single) {
@@ -2567,7 +2540,7 @@ main{ padding: 32px 0 60px; }
       body.appendChild(statValues);
 
       const mainTraits = extractTraitsForType(mats, item.rankType);
-      const mainTraitsText = mainTraits.length ? mainTraits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : "—";
+      const mainTraitsText = mainTraits.length ? mainTraits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : ", ";
       body.appendChild(el("div", { class: "trait-line" }, [document.createTextNode("Traits: " + mainTraitsText)]));
 
       const otherTypes = item.sharedTypes.filter(t => t !== item.rankType).sort();
@@ -2583,7 +2556,7 @@ main{ padding: 32px 0 60px; }
             tooltip.appendChild(el("span", { class: "tt-line" }, [document.createTextNode(stat + ": " + formatNum(val))]));
           });
           const typeTraits = extractTraitsForType(mats, type);
-          const typeTraitsText = typeTraits.length ? typeTraits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : "—";
+          const typeTraitsText = typeTraits.length ? typeTraits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : ", ";
           tooltip.appendChild(el("span", { class: "tt-line tt-traits" }, [document.createTextNode("Traits: " + typeTraitsText)]));
           chip.appendChild(tooltip);
           chipsRow.appendChild(chip);
@@ -2646,7 +2619,7 @@ main{ padding: 32px 0 60px; }
     var banner = document.getElementById('fatalErrorBanner');
     if (banner) {
       banner.style.display = 'block';
-      banner.textContent = 'Something went wrong loading the page: ' + (err && err.message ? err.message : String(err)) + ' — please report this (see the browser console for details).';
+      banner.textContent = 'Something went wrong loading the page: ' + (err && err.message ? err.message : String(err)) + '. Please report this (see the browser console for details).';
     }
     console.error(err);
   }
