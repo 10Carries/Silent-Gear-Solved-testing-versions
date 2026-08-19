@@ -1,5 +1,8 @@
+(function(){
+  try {
+
 /* ============================================================
-   Silent Gear Solved — material / alloy ranking calculator
+   Silent Gear Solved: material / alloy ranking calculator
    Fully generic: works with any material export TSV that shares
    the same column layout (header row + one row per material entry).
    ============================================================ */
@@ -19,7 +22,16 @@
 
   const REQUIRED_HEADERS = ["Name", "Type", "ID"];
   const RESULTS_PER_PAGE = 10;
-  const MAX_COMBOS = 350000; // safety/time budget for the alloy search
+  const MAX_COMBOS = 350000; // auto-narrowing budget (used to trim the pool when narrowing is on)
+  const EXHAUSTIVE_TOP_K = 1000; // when auto-narrowing is off, only this many best-so-far alloys are kept in memory at once
+  const DYNAMIC_INITIAL_CUT_PERCENT = 0.20; // dynamic filter's first cut, before any round has run
+  const DYNAMIC_MIN_PRUNE_PERCENT = 0.10; // dynamic filter always removes at least this much between rounds
+  const DYNAMIC_COMBO_TARGET = 30000000; // dynamic filter prunes further than the minimum if needed to stay under this
+  const ESTIMATE_SAMPLE_SIZE = 100000; // combinations sampled by the "Estimate time" button
+  const ADDITIVE_START_K = 4; // additive alloying's default initial brute-force size
+  const ADDITIVE_BEAM_WIDTH = 10000; // additive alloying keeps this many alloys between rounds
+  const ADDITIVE_ALT_START_K = 3; // alternate starting size, used when it's estimated to be cheaper
+  const ADDITIVE_ALT_BEAM_WIDTH = 100000; // wider beam for the alternate size-3 starting round only
   const CHUNK_SIZE = 4000;
 
   const SYNERGY_MULTI = 1.1;
@@ -43,7 +55,7 @@
     const missing = REQUIRED_HEADERS.filter(h => !headers.includes(h));
     if (missing.length) {
       throw new Error(
-        "This doesn't look like a material export — missing column(s): " + missing.join(", ") +
+        "This doesn't look like a material export, missing column(s): " + missing.join(", ") +
         ". Expected a header row with at least Name, Type, and ID."
       );
     }
@@ -95,6 +107,26 @@
     let s = full.trim().replace(/\*+$/, "").trim();
     s = s.replace(/\s+[IVXLCDM]+$/i, "").trim();
     return s;
+  }
+
+  function romanToInt(roman) {
+    const map = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+    let result = 0;
+    for (let i = 0; i < roman.length; i++) {
+      const cur = map[roman[i]];
+      const next = map[roman[i + 1]];
+      if (next && cur < next) result -= cur; else result += cur;
+    }
+    return result;
+  }
+
+  // Returns the numeric level of a trait string like "Flexible III" -> 3, or
+  // null if the trait has no roman-numeral level (e.g. "Bounce*").
+  function traitLevel(full) {
+    const s = full.trim().replace(/\*+$/, "").trim();
+    const m = s.match(/\s+([IVXLCDM]+)$/i);
+    if (!m) return null;
+    return romanToInt(m[1].toUpperCase());
   }
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -263,7 +295,7 @@
     return result;
   }
 
-  function computeStatForCombo(materials, stat, sharedTypesArr) {
+  function computeStatForType(materials, stat, type) {
     if (stat === "Harvest Tier") {
       let mx = -Infinity;
       for (const m of materials) if (m.harvestTierValue > mx) mx = m.harvestTierValue;
@@ -271,28 +303,110 @@
     }
     const tokenLists = [];
     for (const m of materials) {
-      for (const t of sharedTypesArr) {
-        const row = m.rows[t];
-        if (row) tokenLists.push(row.tokensByStat[stat]);
-      }
+      const row = m.rows[type];
+      if (row) tokenLists.push(row.tokensByStat[stat]);
     }
     return combineTokenLists(tokenLists);
   }
 
+  // Returns a Map of base trait name -> highest level found (or null if that
+  // trait never appears with a parseable level) across every shared role.
+  // Used for trait-filter matching, where a minimum level may be required.
   function extractComboTraits(materials, sharedTypesArr) {
-    const set = new Set();
+    const map = new Map();
     for (const m of materials) {
       for (const t of sharedTypesArr) {
         const row = m.rows[t];
         if (row && row.traits) {
           row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
             const b = baseTraitName(tr);
-            if (b) set.add(b);
+            if (!b) return;
+            const lvl = traitLevel(tr);
+            const prev = map.has(b) ? map.get(b) : undefined;
+            if (prev === undefined || (lvl !== null && (prev === null || lvl > prev))) {
+              map.set(b, lvl);
+            }
           });
         }
       }
     }
-    return set;
+    return map;
+  }
+
+  // Traits for a single role only (used for display, since a hover tooltip for
+  // "Coating" shouldn't list traits that only came from the "Main" role).
+  // Returns [{name, level}], sorted alphabetically, level null if unparseable.
+  function extractTraitsForType(materials, type) {
+    const map = new Map();
+    for (const m of materials) {
+      const row = m.rows[type];
+      if (row && row.traits) {
+        row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
+          const b = baseTraitName(tr);
+          if (!b) return;
+          const lvl = traitLevel(tr);
+          const prev = map.has(b) ? map.get(b) : undefined;
+          if (prev === undefined || (lvl !== null && (prev === null || lvl > prev))) {
+            map.set(b, lvl);
+          }
+        });
+      }
+    }
+    return Array.from(map.entries())
+      .map(([name, level]) => ({ name, level }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function formatTraitLabel(name, level) {
+    return level === null || level === undefined ? name : name + " (" + level + ")";
+  }
+
+  // Same idea as extractTraitsForType, but for a single row directly (used by
+  // the Single Materials tab, where items are raw rows, not MaterialDefs).
+  function traitsForRow(row) {
+    const map = new Map();
+    if (row.traits) {
+      row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
+        const b = baseTraitName(tr);
+        if (!b) return;
+        const lvl = traitLevel(tr);
+        const prev = map.has(b) ? map.get(b) : undefined;
+        if (prev === undefined || (lvl !== null && (prev === null || lvl > prev))) map.set(b, lvl);
+      });
+    }
+    return Array.from(map.entries())
+      .map(([name, level]) => ({ name, level }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function formatTraitList(traits) {
+    return traits.length ? traits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : ", ";
+  }
+
+  // traitFilterMap: Map<traitName, minLevel|null>. comboTraits: Map<traitName, level|null>.
+  // Requires EVERY selected trait to be present, at or above its minimum level if one was given.
+  function passesTraitFilter(comboTraits, traitFilterMap) {
+    for (const [name, minLevel] of traitFilterMap) {
+      if (!comboTraits.has(name)) return false;
+      if (minLevel !== null && minLevel !== undefined) {
+        const lvl = comboTraits.get(name);
+        if (lvl === null || lvl < minLevel) return false;
+      }
+    }
+    return true;
+  }
+
+  // Same idea, but true if ANY selected trait matches, used to decide which
+  // materials get force-kept in the auto-narrowed pool.
+  function passesAnyTraitFilter(traitLevels, traitFilterMap) {
+    for (const [name, minLevel] of traitFilterMap) {
+      if (traitLevels.has(name)) {
+        if (minLevel === null || minLevel === undefined) return true;
+        const lvl = traitLevels.get(name);
+        if (lvl !== null && lvl >= minLevel) return true;
+      }
+    }
+    return false;
   }
 
   function allUniqueBaseTraits(rows) {
@@ -308,39 +422,69 @@
   }
 
   // ---------------------------------------------------------
-  // Version / maker (Alloy Forge vs Super Mixer) rules
+  // Version / maker (4 alloying stations) rules
   // ---------------------------------------------------------
 
-  function getVersionConfig(bucket, superMixerCheckbox) {
-    let alloyForgeSlots, superMixerBase, superMixerSlots;
+  const MACHINES = [
+    { key: "alloyForge", label: "Alloy Forge / Metal Alloyer", test: m => m.categories.includes("Metal") || m.categories.includes("Dust") },
+    { key: "superMixer", label: "Super Mixer", test: () => true },
+    { key: "recrystalizer", label: "Recrystalizer", test: m => m.categories.includes("Gem") || m.categories.includes("Dust") },
+    { key: "refabricator", label: "Refabricator", test: m => m.categories.includes("Slime") || m.categories.includes("Fiber") || m.categories.includes("Cloth") }
+  ];
+
+  // Base slot counts / existence per version bucket, before the user's own checkbox toggles are applied.
+  function getVersionBaseConfig(bucket) {
     if (bucket === "pre402") {
-      alloyForgeSlots = 4; superMixerBase = false; superMixerSlots = 0;
+      return {
+        alloyForge: { slots: 4, exists: true },
+        superMixer: { slots: 0, exists: false },
+        recrystalizer: { slots: 4, exists: true },
+        refabricator: { slots: 4, exists: true }
+      };
     } else if (bucket === "402to414") {
-      alloyForgeSlots = 4; superMixerBase = true; superMixerSlots = 4;
-    } else {
-      alloyForgeSlots = 6; superMixerBase = true; superMixerSlots = 8;
+      return {
+        alloyForge: { slots: 4, exists: true },
+        superMixer: { slots: 4, exists: true },
+        recrystalizer: { slots: 4, exists: true },
+        refabricator: { slots: 4, exists: true }
+      };
     }
     return {
-      alloyForgeSlots,
-      superMixerAvailable: superMixerBase && !!superMixerCheckbox,
-      superMixerSlots
+      alloyForge: { slots: 6, exists: true },
+      superMixer: { slots: 8, exists: true },
+      recrystalizer: { slots: 6, exists: true },
+      refabricator: { slots: 6, exists: true }
     };
   }
 
+  // enabledMap: { alloyForge: bool, superMixer: bool, recrystalizer: bool, refabricator: bool }
+  function getVersionConfig(bucket, enabledMap) {
+    const base = getVersionBaseConfig(bucket);
+    const cfg = {};
+    MACHINES.forEach(m => {
+      const b = base[m.key];
+      cfg[m.key] = { slots: b.slots, available: b.exists && !!(enabledMap && enabledMap[m.key]) };
+    });
+    return cfg;
+  }
+
   function maxFeasibleSlots(cfg) {
-    return Math.max(cfg.alloyForgeSlots, cfg.superMixerAvailable ? cfg.superMixerSlots : 0);
+    let mx = 0;
+    MACHINES.forEach(m => { if (cfg[m.key] && cfg[m.key].available) mx = Math.max(mx, cfg[m.key].slots); });
+    return mx;
   }
 
   function getMakerTags(materials, cfg) {
     const n = materials.length;
-    const allMetalOrDust = materials.every(m => m.categories.includes("Metal") || m.categories.includes("Dust"));
-    const canAlloyForge = allMetalOrDust && n <= cfg.alloyForgeSlots;
-    const canSuperMixer = cfg.superMixerAvailable && n <= cfg.superMixerSlots;
-    if (!canAlloyForge && !canSuperMixer) return null;
     const tags = [];
-    if (canAlloyForge) tags.push("Alloy Forge / Metal Alloyer");
-    if (canSuperMixer) tags.push("Super Mixer");
-    return tags;
+    for (const machine of MACHINES) {
+      const mc = cfg[machine.key];
+      if (!mc || !mc.available) continue;
+      if (n > mc.slots) continue;
+      if (!materials.every(machine.test)) continue;
+      tags.push(machine.label);
+    }
+    return tags.length ? tags : null;
   }
 
   // ---------------------------------------------------------
@@ -392,6 +536,32 @@
     }
   }
 
+  // Generates combinations of exactly size k (not every size from 2 up to k).
+  // Used by additive alloying, which grows a fixed-size beam one size at a time.
+  function* combosOfExactSize(pool, k) {
+    const n = pool.length;
+    for (let p = 0; p < n; p++) {
+      for (const rest of multisetCombos(n, k - 1)) {
+        const combo = [pool[p]];
+        for (const ri of rest) combo.push(pool[ri]);
+        yield combo;
+      }
+    }
+  }
+
+  // For additive alloying's growth step: every surviving alloy, extended by
+  // every pool material inserted either as the new primary (first) or
+  // appended at the end (any non-primary position is equivalent, since only
+  // the primary slot's identity affects the result).
+  function* expandCandidates(survivorItems, pool) {
+    for (const survivor of survivorItems) {
+      for (const mat of pool) {
+        yield [mat].concat(survivor.materials);
+        yield survivor.materials.concat([mat]);
+      }
+    }
+  }
+
   // ---------------------------------------------------------
   // Relevance scoring + auto pool selection (replaces manual pick)
   // ---------------------------------------------------------
@@ -434,17 +604,65 @@
     return pool; // trimming to budget happens in trimPoolToBudget() once cfg/maxK are known
   }
 
+  const MIN_AUTO_NARROW_POOL = 15;
+
   function trimPoolToBudget(orderedPool, forcedIds, maxK, cfg) {
     const forced = orderedPool.filter(d => forcedIds && forcedIds.has(d.id));
     const rest = orderedPool.filter(d => !(forcedIds && forcedIds.has(d.id)));
     let pool = forced.slice();
     for (const d of rest) {
       const trialN = pool.length + 1;
-      if (estimateTotalForPool(trialN, maxK, cfg) > MAX_COMBOS) break;
+      if (estimateTotalForPool(trialN, maxK, cfg) > MAX_COMBOS && pool.length >= MIN_AUTO_NARROW_POOL) break;
       pool.push(d);
     }
     if (pool.length === 0 && orderedPool.length > 0) pool = [orderedPool[0]];
     return pool;
+  }
+
+  // ---------------------------------------------------------
+  // Bounded top-K (for exhaustive search with auto-narrowing off): keeps only
+  // the best-scoring N items seen so far, using a running min/max per stat to
+  // approximate "how good" each item is without holding every item in memory.
+  // ---------------------------------------------------------
+
+  class BoundedTopK {
+    constructor(capacity, getScore) {
+      this.capacity = capacity;
+      this.getScore = getScore;
+      this.data = [];
+    }
+    get size() { return this.data.length; }
+    _cmp(a, b) { return this.getScore(a) - this.getScore(b); }
+    _bubbleUp(i) {
+      while (i > 0) {
+        const p = (i - 1) >> 1;
+        if (this._cmp(this.data[p], this.data[i]) <= 0) break;
+        const tmp = this.data[p]; this.data[p] = this.data[i]; this.data[i] = tmp;
+        i = p;
+      }
+    }
+    _bubbleDown(i) {
+      const n = this.data.length;
+      while (true) {
+        let smallest = i;
+        const l = 2 * i + 1, r = 2 * i + 2;
+        if (l < n && this._cmp(this.data[l], this.data[smallest]) < 0) smallest = l;
+        if (r < n && this._cmp(this.data[r], this.data[smallest]) < 0) smallest = r;
+        if (smallest === i) break;
+        const tmp = this.data[smallest]; this.data[smallest] = this.data[i]; this.data[i] = tmp;
+        i = smallest;
+      }
+    }
+    offer(item) {
+      if (this.data.length < this.capacity) {
+        this.data.push(item);
+        this._bubbleUp(this.data.length - 1);
+      } else if (this._cmp(item, this.data[0]) > 0) {
+        this.data[0] = item;
+        this._bubbleDown(0);
+      }
+    }
+    toArray() { return this.data.slice(); }
   }
 
   // ---------------------------------------------------------
@@ -489,6 +707,7 @@
 
   const materialFilterSelection = new Set(); // ids chosen in the whitelist/blacklist picker
   const traitFilterSelection = new Set();
+  const traitFilterMinLevels = new Map(); // trait name -> number|null (null = any level)
 
   // ---------------------------------------------------------
   // DOM helpers
@@ -527,7 +746,7 @@
       $("#dataFileName").textContent = label;
       const nonExample = state.rows.filter(r => !r.isExample).length;
       $("#dataSummary").textContent =
-        " — " + state.rows.length + " rows loaded (" + nonExample + " usable) across " +
+        ", " + state.rows.length + " rows loaded (" + nonExample + " usable) across " +
         state.materialDefs.length + " unique materials";
       $("#uploadSection").hidden = true;
       $("#app").hidden = false;
@@ -541,10 +760,13 @@
   function initAppUI() {
     materialFilterSelection.clear();
     traitFilterSelection.clear();
+    traitFilterMinLevels.clear();
     buildStatChecklist();
     buildSingleTypeFilter();
+    buildRankTypeDropdown();
     buildMaterialFilterPicker();
     buildTraitFilterList();
+    updateNarrowModeAvailability();
     updateSlotHint();
     updateEligibilityHint();
     renderSingleTab();
@@ -619,12 +841,55 @@
     const types = Array.from(new Set(state.rows.map(r => r.type).filter(Boolean))).sort();
     const sel = $("#singleTypeFilter");
     sel.innerHTML = "";
-    sel.appendChild(el("option", { value: "" }, [document.createTextNode("All types")]));
     types.forEach(t => sel.appendChild(el("option", { value: t }, [document.createTextNode(t)])));
-    sel.value = "";
+    sel.value = types.includes("Main") ? "Main" : (types[0] || "");
     sel.addEventListener("change", renderSingleTab);
   }
   $("#singleHideExamples").addEventListener("change", renderSingleTab);
+
+  function buildRankTypeDropdown() {
+    const types = Array.from(new Set(state.rows.map(r => r.type).filter(Boolean))).sort();
+    const sel = $("#rankTypeSelect");
+    sel.innerHTML = "";
+    types.forEach(t => sel.appendChild(el("option", { value: t }, [document.createTextNode(t)])));
+    sel.value = types.includes("Main") ? "Main" : (types[0] || "");
+    sel.addEventListener("change", () => { updateEligibilityHint(); });
+  }
+  function findOptionByValue(selectEl, value) {
+    return Array.from(selectEl.querySelectorAll("option")).find(o => o.getAttribute("value") === value);
+  }
+
+  function updateNarrowModeAvailability() {
+    const maxK = parseInt(alloySizeInput.value, 10);
+    const sel = $("#narrowModeSelect");
+    ["dynamic", "additive"].forEach(val => {
+      const opt = findOptionByValue(sel, val);
+      if (opt) {
+        opt.disabled = maxK <= 3;
+        if (maxK <= 3 && sel.value === val) sel.value = "auto";
+      }
+    });
+  }
+
+  $("#narrowModeSelect").addEventListener("change", () => {
+    const mode = $("#narrowModeSelect").value;
+    const warn = $("#narrowModeWarning");
+    if (mode === "none") {
+      warn.hidden = false;
+      warn.textContent = "No narrowing checks every possible alloy combination. This can take a LOT of time.";
+    } else if (mode === "dynamic") {
+      warn.hidden = false;
+      warn.textContent = "Dynamic filter should find the best alloy without searching every combination. I personally prefer additive alloying, it should be just as good but faster run time.";
+    } else if (mode === "additive") {
+      warn.hidden = false;
+      warn.textContent = "This should find the best alloy for you in just a couple minutes (at most) if I don't suck at coding.";
+    } else {
+      warn.hidden = true;
+      warn.textContent = "";
+    }
+    updateEligibilityHint();
+    updateComboEstimateHint();
+  });
 
   function getSingleCandidates() {
     const typeFilter = $("#singleTypeFilter").value;
@@ -660,7 +925,11 @@
     $("#materialFilterMode").addEventListener("change", () => {
       updateEligibilityHint();
     });
-    $("#onlyWhitelisted").addEventListener("change", updateEligibilityHint);
+    $("#materialFilterClearBtn").addEventListener("click", () => {
+      materialFilterSelection.clear();
+      renderMaterialFilterPicker();
+      updateEligibilityHint();
+    });
   }
 
   function renderMaterialFilterPicker() {
@@ -689,8 +958,7 @@
   function getMaterialFilterSettings() {
     return {
       mode: $("#materialFilterMode").value,
-      ids: new Set(materialFilterSelection),
-      onlyWhitelisted: $("#onlyWhitelisted").checked
+      ids: new Set(materialFilterSelection)
     };
   }
 
@@ -704,16 +972,48 @@
     wrap.innerHTML = "";
     traits.forEach(trait => {
       const id = "tf_" + trait.replace(/[^a-z0-9]/gi, "_");
+      const item = el("span", { class: "trait-filter-item" });
       const label = el("label", { for: id });
       const input = el("input", { type: "checkbox", id });
-      input.addEventListener("change", () => {
-        if (input.checked) traitFilterSelection.add(trait);
-        else traitFilterSelection.delete(trait);
-        label.classList.toggle("checked", input.checked);
-      });
       label.appendChild(input);
       label.appendChild(document.createTextNode(trait));
-      wrap.appendChild(label);
+      item.appendChild(label);
+
+      const levelInput = el("input", { type: "number", min: "1", step: "1", placeholder: "any" , class: "trait-level-input"});
+      levelInput.hidden = true;
+      item.appendChild(levelInput);
+
+      input.addEventListener("change", () => {
+        if (input.checked) {
+          traitFilterSelection.add(trait);
+          levelInput.hidden = false;
+        } else {
+          traitFilterSelection.delete(trait);
+          traitFilterMinLevels.delete(trait);
+          levelInput.hidden = true;
+          levelInput.value = "";
+        }
+        label.classList.toggle("checked", input.checked);
+      });
+      levelInput.addEventListener("input", () => {
+        const v = parseInt(levelInput.value, 10);
+        if (levelInput.value.trim() === "" || isNaN(v)) traitFilterMinLevels.delete(trait);
+        else traitFilterMinLevels.set(trait, v);
+      });
+
+      wrap.appendChild(item);
+    });
+    $("#traitFilterClearBtn").addEventListener("click", () => {
+      traitFilterSelection.clear();
+      traitFilterMinLevels.clear();
+      $$("#traitFilterList input[type=checkbox]").forEach(input => {
+        input.checked = false;
+        input.closest("label").classList.remove("checked");
+      });
+      $$("#traitFilterList input[type=number]").forEach(input => {
+        input.hidden = true;
+        input.value = "";
+      });
     });
   }
 
@@ -722,46 +1022,182 @@
   // ---------------------------------------------------------
 
   const versionSelect = $("#versionBucket");
-  const superMixerCheckbox = $("#superMixerAllowed");
+  const machineCheckboxes = {
+    alloyForge: $("#machineAlloyForge"),
+    superMixer: $("#machineSuperMixer"),
+    recrystalizer: $("#machineRecrystalizer"),
+    refabricator: $("#machineRefabricator")
+  };
   const alloySizeInput = $("#alloySize");
+
+  let superMixerForcedOffByVersion = versionSelect.value === "pre402";
 
   versionSelect.addEventListener("change", () => {
     if (versionSelect.value === "pre402") {
-      superMixerCheckbox.checked = false;
-      superMixerCheckbox.disabled = true;
+      machineCheckboxes.superMixer.checked = false;
+      machineCheckboxes.superMixer.disabled = true;
+      superMixerForcedOffByVersion = true;
     } else {
-      superMixerCheckbox.disabled = false;
+      machineCheckboxes.superMixer.disabled = false;
+      if (superMixerForcedOffByVersion) {
+        machineCheckboxes.superMixer.checked = true; // restore default now that it exists again
+      }
+      superMixerForcedOffByVersion = false;
     }
+    const newFeasible = maxFeasibleSlots(currentCfg());
+    alloySizeInput.value = String(newFeasible);
+    $("#alloySizeVal").textContent = alloySizeInput.value;
+    updateNarrowModeAvailability();
     updateSlotHint();
     updateEligibilityHint();
+    updateComboEstimateHint();
   });
-  superMixerCheckbox.addEventListener("change", () => { updateSlotHint(); updateEligibilityHint(); });
+  Object.values(machineCheckboxes).forEach(cb => {
+    cb.addEventListener("change", () => { updateSlotHint(); updateEligibilityHint(); updateComboEstimateHint(); });
+  });
   alloySizeInput.addEventListener("input", () => {
     $("#alloySizeVal").textContent = alloySizeInput.value;
+    updateNarrowModeAvailability();
     updateSlotHint();
+    updateComboEstimateHint();
   });
 
   function currentCfg() {
-    return getVersionConfig(versionSelect.value, superMixerCheckbox.checked);
+    const enabledMap = {
+      alloyForge: machineCheckboxes.alloyForge.checked,
+      superMixer: machineCheckboxes.superMixer.checked,
+      recrystalizer: machineCheckboxes.recrystalizer.checked,
+      refabricator: machineCheckboxes.refabricator.checked
+    };
+    return getVersionConfig(versionSelect.value, enabledMap);
   }
 
   function updateSlotHint() {
     const cfg = currentCfg();
     const feasible = maxFeasibleSlots(cfg);
     const requested = parseInt(alloySizeInput.value, 10);
-    let msg = "Alloy Forge: " + cfg.alloyForgeSlots + " slots.";
-    if (cfg.superMixerAvailable) msg += " Super Mixer: " + cfg.superMixerSlots + " slots.";
-    else msg += " Super Mixer not available for this version/setting.";
-    if (requested > feasible) msg += " Sizes above " + feasible + " won't produce any results with your current settings.";
+    const parts = MACHINES.map(m => {
+      if (!cfg[m.key].available) return m.label + ": not available.";
+      return m.label + ": " + cfg[m.key].slots + " slots.";
+    });
+    let msg = parts.join(" ");
+    if (feasible === 0) msg += "You didn't select any alloying machines so how will you make an alloy???.";
+    else if (requested > feasible) msg += " Sizes above " + feasible + " won't produce any results with your current settings.";
     $("#slotHint").textContent = msg;
   }
 
-  function updateEligibilityHint() {
+  // Materials that don't even have the selected role can never keep it as a
+  // shared type, so they're excluded up front. This also means a whitelist
+  // is automatically narrowed to only its type compatible members.
+  function getTypeAndFilterCandidates() {
+    const type = $("#rankTypeSelect").value;
+    let pool = state.materialDefs.filter(d => !!d.rows[type]);
     const filter = getMaterialFilterSettings();
-    let pool = state.materialDefs;
-    if (filter.mode === "blacklist") pool = pool.filter(d => !filter.ids.has(d.id));
-    else if (filter.mode === "whitelist" && filter.onlyWhitelisted) pool = pool.filter(d => filter.ids.has(d.id));
-    $("#eligibilityHint").textContent = pool.length + " material(s) currently eligible before auto‑narrowing.";
+    if (filter.mode === "whitelist") pool = pool.filter(d => filter.ids.has(d.id));
+    else if (filter.mode === "blacklist") pool = pool.filter(d => !filter.ids.has(d.id));
+    return pool;
+  }
+
+  function updateEligibilityHint() {
+    const pool = getTypeAndFilterCandidates();
+    const mode = $("#narrowModeSelect").value;
+    let modeText;
+    if (mode === "auto") modeText = " before auto-narrowing.";
+    else if (mode === "dynamic") modeText = " before dynamic-filter's initial cut.";
+    else modeText = " (no narrowing, all of these are searched).";
+    $("#eligibilityHint").textContent = pool.length + " material(s) currently eligible" + modeText;
+    updateComboEstimateHint();
+  }
+
+  // Projects how dynamic-filter's pool size would shrink round-by-round, using
+  // the same size-only rule the real pruning step applies (the real run also
+  // factors in actual material performance, so this is an approximation for
+  // display purposes only).
+  function estimateDynamicRoundSizes(initialPoolSize, maxK, cfg) {
+    const rounds = [];
+    let n = initialPoolSize;
+    for (let k = 3; k <= maxK; k++) {
+      rounds.push({ k, n });
+      if (k < maxK) {
+        const keepByMinPercent = Math.round(n * (1 - DYNAMIC_MIN_PRUNE_PERCENT));
+        const keepByComboTarget = largestPoolSizeUnderTarget(n, k + 1, cfg, DYNAMIC_COMBO_TARGET);
+        n = Math.max(2, Math.min(keepByMinPercent, keepByComboTarget));
+      }
+    }
+    return rounds;
+  }
+
+  function estimateDynamicTotalCombos(initialPoolSize, maxK, cfg) {
+    return estimateDynamicRoundSizes(initialPoolSize, maxK, cfg)
+      .reduce((sum, r) => sum + estimateTotalForPool(r.n, r.k, cfg), 0);
+  }
+
+  // Decides whether it's cheaper to brute-force directly at size 4, or to
+  // brute-force the much smaller size-3 space first (with a wider beam) and
+  // grow that to size 4 via insertion. Returns both cost estimates plus which
+  // one wins, so the same decision can be reused for display and execution.
+  function chooseAdditiveStartStrategy(n) {
+    const costDirect4 = n * nMultichoose(n, ADDITIVE_START_K - 1);
+    const costAt3 = n * nMultichoose(n, ADDITIVE_ALT_START_K - 1);
+    const survivorsAt3Estimate = Math.min(ADDITIVE_ALT_BEAM_WIDTH, costAt3);
+    const growTo4Cost = survivorsAt3Estimate * n * 2;
+    const costVia3 = costAt3 + growTo4Cost;
+    return { costDirect4, costVia3, useVia3: costVia3 < costDirect4 };
+  }
+
+  function estimateAdditiveTotalCombos(n, maxK, cfg) {
+    const strategy = chooseAdditiveStartStrategy(n);
+    const startCost = strategy.useVia3 ? strategy.costVia3 : strategy.costDirect4;
+    const survivorsAfterStart = Math.min(ADDITIVE_BEAM_WIDTH,
+      strategy.useVia3 ? Math.min(ADDITIVE_ALT_BEAM_WIDTH, n * nMultichoose(n, ADDITIVE_ALT_START_K - 1)) * n * 2 : strategy.costDirect4);
+    const totalRounds = Math.max(1, maxK - ADDITIVE_START_K + 1);
+    const expansionRoundTotal = survivorsAfterStart * n * 2;
+    return startCost + Math.max(0, totalRounds - 1) * expansionRoundTotal;
+  }
+
+  function updateComboEstimateHint() {
+    const box = $("#comboEstimateHint");
+    const selectedStats = Array.from(state.selectedStats);
+    const maxK = parseInt(alloySizeInput.value, 10);
+    const cfg = currentCfg();
+    const mode = $("#narrowModeSelect").value;
+    const candidateDefs = getTypeAndFilterCandidates();
+
+    if (candidateDefs.length === 0) {
+      box.textContent = "No materials match your current filters.";
+      return;
+    }
+
+    if (mode === "none") {
+      const total = estimateTotalForPool(candidateDefs.length, maxK, cfg);
+      box.textContent = total.toLocaleString() + " combinations possible with no narrowing.";
+    } else if (mode === "dynamic") {
+      if (maxK <= 3) {
+        box.textContent = "Dynamic filter needs a max alloy size above 3.";
+      } else {
+        const initialPoolSize = Math.max(2, Math.round(candidateDefs.length * (1 - DYNAMIC_INITIAL_CUT_PERCENT)));
+        const totalAcrossRounds = estimateDynamicTotalCombos(initialPoolSize, maxK, cfg);
+        box.textContent = "Dynamic filter: cuts to ~" + initialPoolSize + " of " + candidateDefs.length +
+          " materials first, then an estimated " + totalAcrossRounds.toLocaleString() +
+          " combinations total across all rounds through size " + maxK + " (narrows adaptively, so the real count may vary).";
+      }
+    } else if (mode === "additive") {
+      if (maxK < ADDITIVE_START_K) {
+        box.textContent = "Additive alloying needs a max alloy size of at least " + ADDITIVE_START_K + ".";
+      } else {
+        const strategy = chooseAdditiveStartStrategy(candidateDefs.length);
+        const startK = strategy.useVia3 ? ADDITIVE_ALT_START_K : ADDITIVE_START_K;
+        const totalAcrossRounds = estimateAdditiveTotalCombos(candidateDefs.length, maxK, cfg);
+        box.textContent = "Additive alloying: tests all " + candidateDefs.length +
+          " materials, starting at size " + startK + (strategy.useVia3 ? " (faster than starting at " + ADDITIVE_START_K + " for this many materials)" : "") +
+          ", an estimated " + totalAcrossRounds.toLocaleString() + " combinations total, growing to size " + maxK + ".";
+      }
+    } else {
+      const ordered = selectPool(candidateDefs, selectedStats, maxK, null);
+      const trimmed = trimPoolToBudget(ordered, null, maxK, cfg);
+      const total = estimateTotalForPool(trimmed.length, maxK, cfg);
+      box.textContent = "Auto-narrow will check " + total.toLocaleString() + " combinations (from " + trimmed.length + " of " + candidateDefs.length + " materials).";
+    }
   }
 
   function renderAlloyTab() {
@@ -774,51 +1210,300 @@
 
   $("#computeAlloysBtn").addEventListener("click", runAlloyComputation);
 
-  function runAlloyComputation() {
+  function formatDuration(totalSeconds) {
+    if (!isFinite(totalSeconds) || totalSeconds < 0) return "unknown";
+    if (totalSeconds < 60) return Math.ceil(totalSeconds) + " sec";
+    if (totalSeconds < 3600) return Math.ceil(totalSeconds / 60) + " min";
+    if (totalSeconds < 86400) return (totalSeconds / 3600).toFixed(1) + " hr";
+    return (totalSeconds / 86400).toFixed(1) + " days";
+  }
+
+  $("#estimateTimeBtn").addEventListener("click", () => {
     const selectedStats = Array.from(state.selectedStats);
-    const msg = $("#alloyComputeMsg");
+    const resultEl = $("#estimateTimeResult");
     if (selectedStats.length === 0) {
-      msg.textContent = "Select at least one stat above before computing.";
+      resultEl.textContent = "Select at least one stat first.";
       return;
     }
 
     const cfg = currentCfg();
     const maxK = parseInt(alloySizeInput.value, 10);
-    const filter = getMaterialFilterSettings();
-
-    let candidateDefs = state.materialDefs;
-    let forcedIds = null;
-    if (filter.mode === "blacklist") {
-      candidateDefs = candidateDefs.filter(d => !filter.ids.has(d.id));
-    } else if (filter.mode === "whitelist") {
-      if (filter.onlyWhitelisted) candidateDefs = candidateDefs.filter(d => filter.ids.has(d.id));
-      else forcedIds = filter.ids;
-    }
+    const rankType = $("#rankTypeSelect").value;
+    const mode = $("#narrowModeSelect").value;
+    const traitFilterSet = new Map(Array.from(traitFilterSelection).map(name => [name, traitFilterMinLevels.has(name) ? traitFilterMinLevels.get(name) : null]));
+    const candidateDefs = getTypeAndFilterCandidates();
 
     if (candidateDefs.length === 0) {
-      msg.textContent = "No materials match your filter settings.";
-      $("#alloyResults").innerHTML = "";
-      $("#alloyPager").innerHTML = "";
+      resultEl.textContent = "No materials match your filter settings and selected role.";
       return;
     }
 
-    const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
-    const pool = trimPoolToBudget(orderedByScore, forcedIds, maxK, cfg);
+    let forcedIds = null;
+    if (traitFilterSet.size > 0) {
+      forcedIds = new Set();
+      candidateDefs.forEach(d => {
+        const row = d.rows[rankType];
+        if (!row || !row.traits) return;
+        const levels = new Map();
+        row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
+          const b = baseTraitName(tr);
+          if (!b) return;
+          const lvl = traitLevel(tr);
+          const prev = levels.has(b) ? levels.get(b) : undefined;
+          if (prev === undefined || (lvl !== null && (prev === null || lvl > prev))) levels.set(b, lvl);
+        });
+        if (passesAnyTraitFilter(levels, traitFilterSet)) forcedIds.add(d.id);
+      });
+    }
 
-    const total = estimateTotalForPool(pool.length, maxK, cfg);
-    const traitFilterSet = new Set(traitFilterSelection);
+    let samplePool, sampleK, projectedTotal;
+    if (mode === "none") {
+      samplePool = candidateDefs;
+      sampleK = maxK;
+      projectedTotal = estimateTotalForPool(samplePool.length, maxK, cfg);
+    } else if (mode === "dynamic") {
+      if (maxK <= 3) {
+        resultEl.textContent = "Dynamic filter needs a max alloy size above 3.";
+        return;
+      }
+      const ordered = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
+      const initialKeepCount = Math.max(2, Math.round(candidateDefs.length * (1 - DYNAMIC_INITIAL_CUT_PERCENT)));
+      samplePool = ordered.slice(0, Math.min(initialKeepCount, ordered.length));
+      sampleK = 3;
+      projectedTotal = estimateDynamicTotalCombos(samplePool.length, maxK, cfg);
+    } else if (mode === "additive") {
+      if (maxK < ADDITIVE_START_K) {
+        resultEl.textContent = "Additive alloying needs a max alloy size of at least " + ADDITIVE_START_K + ".";
+        return;
+      }
+      samplePool = candidateDefs;
+      sampleK = chooseAdditiveStartStrategy(candidateDefs.length).useVia3 ? ADDITIVE_ALT_START_K : ADDITIVE_START_K;
+      projectedTotal = estimateAdditiveTotalCombos(samplePool.length, maxK, cfg);
+    } else {
+      const ordered = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
+      samplePool = trimPoolToBudget(ordered, forcedIds, maxK, cfg);
+      sampleK = maxK;
+      projectedTotal = estimateTotalForPool(samplePool.length, maxK, cfg);
+    }
 
-    $("#computeAlloysBtn").disabled = true;
-    const progressWrap = $("#progressWrap");
+    resultEl.textContent = "Measuring…";
+    $("#estimateTimeBtn").disabled = true;
+
+    const gen = mode === "additive" ? combosOfExactSize(samplePool, sampleK) : comboGenerator(samplePool, sampleK, cfg);
+    const startTime = Date.now();
+    let sampled = 0;
+
+    function step() {
+      let count = 0;
+      let res = gen.next();
+      while (!res.done && count < CHUNK_SIZE && sampled < ESTIMATE_SAMPLE_SIZE) {
+        const combo = res.value;
+        const uniqueCount = new Set(combo.map(m => m.key)).size;
+        if (uniqueCount >= 2) {
+          const sharedTypesSet = getSharedTypes(combo);
+          if (sharedTypesSet.has(rankType)) {
+            const makerTags = getMakerTags(combo, cfg);
+            if (makerTags) {
+              const sharedTypesArr = Array.from(sharedTypesSet);
+              let passTraits = true;
+              if (traitFilterSet.size > 0) {
+                const comboTraits = extractComboTraits(combo, sharedTypesArr);
+                passTraits = passesTraitFilter(comboTraits, traitFilterSet);
+              }
+              if (passTraits) {
+                const synergy = computeSynergy(combo);
+                selectedStats.forEach(stat => {
+                  const raw = computeStatForType(combo, stat, rankType);
+                  void (stat === "Harvest Tier" ? raw : raw * synergy);
+                });
+              }
+            }
+          }
+        }
+        sampled++;
+        count++;
+        res = gen.next();
+      }
+
+      if (!res.done && sampled < ESTIMATE_SAMPLE_SIZE) {
+        resultEl.textContent = "Measuring… (" + sampled.toLocaleString() + " / " + ESTIMATE_SAMPLE_SIZE.toLocaleString() + ")";
+        setTimeout(step, 0);
+      } else {
+        const elapsedSeconds = (Date.now() - startTime) / 1000;
+        const rate = sampled / Math.max(elapsedSeconds, 0.001);
+        const estimatedSeconds = projectedTotal / rate;
+        $("#estimateTimeBtn").disabled = false;
+        resultEl.textContent = "Sampled " + sampled.toLocaleString() + " combinations in " + elapsedSeconds.toFixed(2) +
+          "s (~" + Math.round(rate).toLocaleString() + "/s). Estimated total for " + projectedTotal.toLocaleString() +
+          " combinations: ~" + formatDuration(estimatedSeconds) + ".";
+      }
+    }
+    step();
+  });
+
+  // Runs the full validity/maker/trait pipeline for one combo and returns the
+  // finished result item, or null if the combo isn't a valid alloy under the
+  // current settings. Shared by additive alloying's two round types.
+  function tryBuildResultItem(combo, opts) {
+    const { rankType, cfg, traitFilterSet, selectedStats } = opts;
+    const uniqueCount = new Set(combo.map(m => m.key)).size;
+    if (uniqueCount < 2) return null;
+    const sharedTypesSet = getSharedTypes(combo);
+    if (!sharedTypesSet.has(rankType)) return null;
+    const makerTags = getMakerTags(combo, cfg);
+    if (!makerTags) return null;
+    const sharedTypesArr = Array.from(sharedTypesSet);
+    if (traitFilterSet.size > 0) {
+      const comboTraits = extractComboTraits(combo, sharedTypesArr);
+      if (!passesTraitFilter(comboTraits, traitFilterSet)) return null;
+    }
+    const synergy = computeSynergy(combo);
+    const values = {};
+    selectedStats.forEach(stat => {
+      const raw = computeStatForType(combo, stat, rankType);
+      values[stat] = stat === "Harvest Tier" ? raw : raw * synergy;
+    });
+    return { materials: combo, synergy, values, sharedTypes: sharedTypesArr, rankType, makerTags, single: false };
+  }
+
+  function makeRunningScorer(selectedStats, runningRange) {
+    return item => {
+      let s = 0;
+      for (const stat of selectedStats) {
+        const r = runningRange[stat];
+        const range = r.max - r.min;
+        s += range > 0 ? (item.values[stat] - r.min) / range : 0;
+      }
+      return s / selectedStats.length;
+    };
+  }
+
+  // Additive alloying, step 1: brute-force search of exactly size k, keeping
+  // the best `beamWidth` alloys as the starting beam (defaults to
+  // ADDITIVE_BEAM_WIDTH; the alternate size-3 pre-round uses a wider one).
+  function runExactSizeSearch(pool, k, opts, onComplete) {
+    const { selectedStats, progressPrefix, beamWidth } = opts;
+    const total = pool.length * nMultichoose(pool.length, k - 1);
     const progressFill = $("#progressFill");
     const progressLabel = $("#progressLabel");
-    progressWrap.hidden = false;
-    progressFill.style.width = "0%";
-    progressLabel.textContent = "Starting…";
-    msg.textContent = "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials for this search.";
 
-    const gen = comboGenerator(pool, maxK, cfg);
-    const results = [];
+    const gen = combosOfExactSize(pool, k);
+    const runningRange = {};
+    selectedStats.forEach(stat => { runningRange[stat] = { min: Infinity, max: -Infinity }; });
+    const topK = new BoundedTopK(beamWidth || ADDITIVE_BEAM_WIDTH, makeRunningScorer(selectedStats, runningRange));
+
+    let processed = 0;
+    function step() {
+      let count = 0;
+      let res = gen.next();
+      while (!res.done && count < CHUNK_SIZE) {
+        const item = tryBuildResultItem(res.value, opts);
+        if (item) {
+          selectedStats.forEach(stat => {
+            const v = item.values[stat];
+            const r = runningRange[stat];
+            if (v < r.min) r.min = v;
+            if (v > r.max) r.max = v;
+          });
+          topK.offer(item);
+        }
+        processed++;
+        count++;
+        res = gen.next();
+      }
+      const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 100;
+      progressFill.style.width = pct + "%";
+      progressLabel.textContent = (progressPrefix || "") + processed.toLocaleString() + " / " + total.toLocaleString() +
+        " combinations checked (" + pct + "%) · keeping best " + topK.size.toLocaleString();
+      if (!res.done) {
+        setTimeout(step, 0);
+      } else {
+        onComplete(topK.toArray(), total);
+      }
+    }
+    step();
+  }
+
+  // Additive alloying, growth step: extends every surviving alloy by every
+  // pool material (inserted first or appended), keeping the best
+  // ADDITIVE_BEAM_WIDTH again. Cost per round is roughly
+  // survivors × poolSize × 2
+  function runExpansionRound(survivorItems, pool, opts, onComplete) {
+    const { selectedStats, progressPrefix } = opts;
+    const total = survivorItems.length * pool.length * 2;
+    const progressFill = $("#progressFill");
+    const progressLabel = $("#progressLabel");
+
+    const gen = expandCandidates(survivorItems, pool);
+    const runningRange = {};
+    selectedStats.forEach(stat => { runningRange[stat] = { min: Infinity, max: -Infinity }; });
+    const topK = new BoundedTopK(ADDITIVE_BEAM_WIDTH, makeRunningScorer(selectedStats, runningRange));
+
+    let processed = 0;
+    function step() {
+      let count = 0;
+      let res = gen.next();
+      while (!res.done && count < CHUNK_SIZE) {
+        const combo = res.value;
+        const item = tryBuildResultItem(combo, opts);
+        if (item) {
+          selectedStats.forEach(stat => {
+            const v = item.values[stat];
+            const r = runningRange[stat];
+            if (v < r.min) r.min = v;
+            if (v > r.max) r.max = v;
+          });
+          topK.offer(item);
+        }
+        processed++;
+        count++;
+        res = gen.next();
+      }
+      const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 100;
+      progressFill.style.width = pct + "%";
+      progressLabel.textContent = (progressPrefix || "") + processed.toLocaleString() + " / " + total.toLocaleString() +
+        " combinations checked (" + pct + "%) · keeping best " + topK.size.toLocaleString();
+      if (!res.done) {
+        setTimeout(step, 0);
+      } else {
+        onComplete(topK.toArray(), total);
+      }
+    }
+    step();
+  }
+
+  // Runs one full chunked combination search over `pool` for sizes 2..roundMaxK.
+  // If topKCap is set, keeps only the best-so-far topKCap items (bounded memory);
+  // otherwise accumulates every valid result in a plain array. Calls
+  // onComplete(rankedResults, totalChecked) once the whole pool has been scanned.
+  // Runs one full chunked pass over `pool` at exactly size k purely to score
+  // materials by how they actually perform in combinations. No combo objects
+  // are retained (just a running per-stat range and a small per-material sum/
+  // count/best accumulator), so this stays cheap and memory-safe regardless of
+  // how many combinations exist, unlike sampling from a bounded top-K survivor
+  // set (which would bias scoring toward whichever materials happened to pair
+  // with an already-strong partner).
+  function runComboSearchForAggregate(pool, k, opts, onComplete) {
+    const { selectedStats, rankType, cfg, traitFilterSet, progressPrefix } = opts;
+    const total = estimateTotalForPool(pool.length, k, cfg);
+    const progressFill = $("#progressFill");
+    const progressLabel = $("#progressLabel");
+
+    const gen = comboGenerator(pool, k, cfg);
+    const runningRange = {};
+    selectedStats.forEach(stat => { runningRange[stat] = { min: Infinity, max: -Infinity }; });
+    const materialAgg = new Map(); // id -> { sum, count, best }
+
+    function scoreOf(values) {
+      let s = 0;
+      for (const stat of selectedStats) {
+        const r = runningRange[stat];
+        const range = r.max - r.min;
+        s += range > 0 ? (values[stat] - r.min) / range : 0;
+      }
+      return s / selectedStats.length;
+    }
+
     let processed = 0;
 
     function step() {
@@ -826,24 +1511,43 @@
       let res = gen.next();
       while (!res.done && count < CHUNK_SIZE) {
         const combo = res.value;
-        const sharedTypesSet = getSharedTypes(combo);
-        if (sharedTypesSet.size > 0) {
-          const makerTags = getMakerTags(combo, cfg);
-          if (makerTags) {
-            const sharedTypesArr = Array.from(sharedTypesSet);
-            let passTraits = true;
-            if (traitFilterSet.size > 0) {
-              const comboTraits = extractComboTraits(combo, sharedTypesArr);
-              for (const t of traitFilterSet) { if (!comboTraits.has(t)) { passTraits = false; break; } }
-            }
-            if (passTraits) {
-              const synergy = computeSynergy(combo);
-              const values = {};
-              selectedStats.forEach(stat => {
-                const raw = computeStatForCombo(combo, stat, sharedTypesArr);
-                values[stat] = stat === "Harvest Tier" ? raw : raw * synergy;
-              });
-              results.push({ materials: combo, synergy, values, sharedTypes: sharedTypesArr, makerTags, single: false });
+        const uniqueCount = new Set(combo.map(m => m.key)).size;
+        if (uniqueCount >= 2) {
+          const sharedTypesSet = getSharedTypes(combo);
+          if (sharedTypesSet.has(rankType)) {
+            const makerTags = getMakerTags(combo, cfg);
+            if (makerTags) {
+              const sharedTypesArr = Array.from(sharedTypesSet);
+              let passTraits = true;
+              if (traitFilterSet.size > 0) {
+                const comboTraits = extractComboTraits(combo, sharedTypesArr);
+                passTraits = passesTraitFilter(comboTraits, traitFilterSet);
+              }
+              if (passTraits) {
+                const synergy = computeSynergy(combo);
+                const values = {};
+                selectedStats.forEach(stat => {
+                  const raw = computeStatForType(combo, stat, rankType);
+                  values[stat] = stat === "Harvest Tier" ? raw : raw * synergy;
+                });
+                selectedStats.forEach(stat => {
+                  const v = values[stat];
+                  const r = runningRange[stat];
+                  if (v < r.min) r.min = v;
+                  if (v > r.max) r.max = v;
+                });
+                const score = scoreOf(values);
+                const seenInCombo = new Set();
+                combo.forEach(m => {
+                  if (seenInCombo.has(m.id)) return; // count repeats once per combo
+                  seenInCombo.add(m.id);
+                  const rec = materialAgg.get(m.id) || { sum: 0, count: 0, best: -Infinity };
+                  rec.sum += score;
+                  rec.count++;
+                  if (score > rec.best) rec.best = score;
+                  materialAgg.set(m.id, rec);
+                });
+              }
             }
           }
         }
@@ -854,23 +1558,268 @@
 
       const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 100;
       progressFill.style.width = pct + "%";
-      progressLabel.textContent = processed.toLocaleString() + " / " + total.toLocaleString() + " combinations checked (" + pct + "%)";
+      progressLabel.textContent = (progressPrefix || "") + processed.toLocaleString() + " / " + total.toLocaleString() + " combinations checked (" + pct + "%)";
 
       if (!res.done) {
         setTimeout(step, 0);
       } else {
-        state.alloy.ranked = rankItems(results, selectedStats);
-        state.alloy.page = 1;
-        state.alloy.computed = true;
-        progressWrap.hidden = true;
-        $("#computeAlloysBtn").disabled = false;
-        msg.textContent = "Auto-narrowed to " + pool.length + " of " + candidateDefs.length +
-          " eligible materials · checked " + total.toLocaleString() + " combinations · " +
-          results.length.toLocaleString() + " valid alloys found.";
-        renderResultsPage("alloy");
+        onComplete(materialAgg, total);
       }
     }
     step();
+  }
+
+  function runComboSearchRound(pool, roundMaxK, opts, onComplete) {
+    const { selectedStats, rankType, cfg, traitFilterSet, topKCap, progressPrefix } = opts;
+    const total = estimateTotalForPool(pool.length, roundMaxK, cfg);
+    const progressFill = $("#progressFill");
+    const progressLabel = $("#progressLabel");
+
+    const gen = comboGenerator(pool, roundMaxK, cfg);
+    const results = topKCap ? null : [];
+    const runningRange = {};
+    selectedStats.forEach(stat => { runningRange[stat] = { min: Infinity, max: -Infinity }; });
+    const topK = topKCap ? new BoundedTopK(topKCap, item => {
+      let s = 0;
+      for (const stat of selectedStats) {
+        const r = runningRange[stat];
+        const range = r.max - r.min;
+        s += range > 0 ? (item.values[stat] - r.min) / range : 0;
+      }
+      return s / selectedStats.length;
+    }) : null;
+
+    let processed = 0;
+
+    function step() {
+      let count = 0;
+      let res = gen.next();
+      while (!res.done && count < CHUNK_SIZE) {
+        const combo = res.value;
+        const uniqueCount = new Set(combo.map(m => m.key)).size;
+        if (uniqueCount >= 2) {
+          const sharedTypesSet = getSharedTypes(combo);
+          if (sharedTypesSet.has(rankType)) {
+            const makerTags = getMakerTags(combo, cfg);
+            if (makerTags) {
+              const sharedTypesArr = Array.from(sharedTypesSet);
+              let passTraits = true;
+              if (traitFilterSet.size > 0) {
+                const comboTraits = extractComboTraits(combo, sharedTypesArr);
+                passTraits = passesTraitFilter(comboTraits, traitFilterSet);
+              }
+              if (passTraits) {
+                const synergy = computeSynergy(combo);
+                const values = {};
+                selectedStats.forEach(stat => {
+                  const raw = computeStatForType(combo, stat, rankType);
+                  values[stat] = stat === "Harvest Tier" ? raw : raw * synergy;
+                });
+                const item = { materials: combo, synergy, values, sharedTypes: sharedTypesArr, rankType, makerTags, single: false };
+                if (topKCap) {
+                  selectedStats.forEach(stat => {
+                    const v = values[stat];
+                    const r = runningRange[stat];
+                    if (v < r.min) r.min = v;
+                    if (v > r.max) r.max = v;
+                  });
+                  topK.offer(item);
+                } else {
+                  results.push(item);
+                }
+              }
+            }
+          }
+        }
+        processed++;
+        count++;
+        res = gen.next();
+      }
+
+      const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 100;
+      progressFill.style.width = pct + "%";
+      progressLabel.textContent = (progressPrefix || "") + processed.toLocaleString() + " / " + total.toLocaleString() +
+        " combinations checked (" + pct + "%)" + (topK ? " · keeping best " + topK.size.toLocaleString() + " so far" : "");
+
+      if (!res.done) {
+        setTimeout(step, 0);
+      } else {
+        const finalResults = topKCap ? topK.toArray() : results;
+        const ranked = rankItems(finalResults, selectedStats);
+        onComplete(ranked, total);
+      }
+    }
+    step();
+  }
+
+  // Largest pool size n (<= currentN) such that a full search at `nextK` would
+  // stay under DYNAMIC_COMBO_TARGET combinations.
+  function largestPoolSizeUnderTarget(currentN, nextK, cfg, target) {
+    let n = currentN;
+    while (n > 2 && estimateTotalForPool(n, nextK, cfg) >= target) n--;
+    return Math.max(2, n);
+  }
+
+  // Decide how many materials survive into the next round: at least the
+  // DYNAMIC_MIN_PRUNE_PERCENT minimum removal, but more if needed to keep the
+  // next round's combination count under DYNAMIC_COMBO_TARGET.
+  function pruneForDynamicRound(pool, materialAgg, nextK, cfg, scoringMode) {
+    const scored = pool.map(def => {
+      const rec = materialAgg.get(def.id);
+      if (!rec || rec.count === 0) return { def, score: -Infinity };
+      const score = scoringMode === "best" ? rec.best : rec.sum / rec.count;
+      return { def, score };
+    });
+    scored.sort((a, b) => b.score - a.score); // descending: best first
+
+    const keepByMinPercent = Math.round(pool.length * (1 - DYNAMIC_MIN_PRUNE_PERCENT));
+    const keepByComboTarget = largestPoolSizeUnderTarget(pool.length, nextK, cfg, DYNAMIC_COMBO_TARGET);
+    const keepCount = Math.max(2, Math.min(keepByMinPercent, keepByComboTarget));
+    return scored.slice(0, keepCount).map(s => s.def);
+  }
+
+  function runAlloyComputation() {
+    const selectedStats = Array.from(state.selectedStats);
+    const msg = $("#alloyComputeMsg");
+    if (selectedStats.length === 0) {
+      msg.textContent = "Select at least one stat above before computing.";
+      return;
+    }
+
+    const cfg = currentCfg();
+    const maxK = parseInt(alloySizeInput.value, 10);
+    const rankType = $("#rankTypeSelect").value;
+    const mode = $("#narrowModeSelect").value;
+    const traitFilterSet = new Map(Array.from(traitFilterSelection).map(name => [name, traitFilterMinLevels.has(name) ? traitFilterMinLevels.get(name) : null]));
+
+    const candidateDefs = getTypeAndFilterCandidates();
+
+    if (candidateDefs.length === 0) {
+      msg.textContent = "No materials match your filter settings and selected role.";
+      $("#alloyResults").innerHTML = "";
+      $("#alloyPager").innerHTML = "";
+      return;
+    }
+
+    // Materials carrying at least one of the required traits (on the selected
+    // role's row) are always kept in the auto-narrowed pool, so trait filtering
+    // doesn't get starved out by pure stat-relevance scoring.
+    let forcedIds = null;
+    if (traitFilterSet.size > 0) {
+      forcedIds = new Set();
+      candidateDefs.forEach(d => {
+        const row = d.rows[rankType];
+        if (!row || !row.traits) return;
+        const levels = new Map();
+        row.traits.split(",").map(s => s.trim()).filter(Boolean).forEach(tr => {
+          const b = baseTraitName(tr);
+          if (!b) return;
+          const lvl = traitLevel(tr);
+          const prev = levels.has(b) ? levels.get(b) : undefined;
+          if (prev === undefined || (lvl !== null && (prev === null || lvl > prev))) levels.set(b, lvl);
+        });
+        if (passesAnyTraitFilter(levels, traitFilterSet)) forcedIds.add(d.id);
+      });
+    }
+
+    $("#computeAlloysBtn").disabled = true;
+    const progressWrap = $("#progressWrap");
+    const progressFill = $("#progressFill");
+    const progressLabel = $("#progressLabel");
+    progressWrap.hidden = false;
+    progressFill.style.width = "0%";
+    progressLabel.textContent = "Starting…";
+    msg.textContent = "";
+
+    const baseOpts = { selectedStats, rankType, cfg, traitFilterSet };
+
+    function finish(pool, ranked, totalChecked, summaryPrefix) {
+      state.alloy.ranked = ranked;
+      state.alloy.page = 1;
+      state.alloy.computed = true;
+      progressWrap.hidden = true;
+      $("#computeAlloysBtn").disabled = false;
+      msg.textContent = "";
+      renderResultsPage("alloy");
+    }
+
+    if (mode === "none") {
+      const pool = candidateDefs;
+      runComboSearchRound(pool, maxK, Object.assign({ topKCap: EXHAUSTIVE_TOP_K, progressPrefix: "" }, baseOpts), (ranked, total) => {
+        finish(pool, ranked, total, "Searched all " + pool.length + " eligible materials (no narrowing)");
+      });
+    } else if (mode === "dynamic" && maxK > 3) {
+      // Initial cut: standalone relevance scoring (same scorer auto-narrow
+      // uses), since no alloy performance data exists before round 1 yet.
+      const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
+      const initialKeepCount = Math.max(2, Math.round(candidateDefs.length * (1 - DYNAMIC_INITIAL_CUT_PERCENT)));
+      const initialPool = orderedByScore.slice(0, Math.min(initialKeepCount, orderedByScore.length));
+
+      const startK = 3;
+      const totalRounds = Math.max(1, maxK - startK + 1);
+
+      function doRound(pool, k, roundIndex) {
+        const prefix = "Dynamic filter: round " + roundIndex + " of " + totalRounds + " (alloy size " + k + "): ";
+        if (k >= maxK) {
+          // Final round: a real search that produces the actual displayed results.
+          runComboSearchRound(pool, k, Object.assign({ topKCap: EXHAUSTIVE_TOP_K, progressPrefix: prefix }, baseOpts), (ranked, total) => {
+            finish(pool, ranked, total, "Dynamic filter finished at size " + maxK + " with " + pool.length + " of " + candidateDefs.length + " materials");
+          });
+        } else {
+          // Pruning-only pass: aggregate how every material actually performed
+          // across every valid combination this round (not just a top-K sample).
+          runComboSearchForAggregate(pool, k, Object.assign({ progressPrefix: prefix }, baseOpts), (materialAgg, total) => {
+            const nextPool = pruneForDynamicRound(pool, materialAgg, k + 1, cfg, "best");
+            msg.textContent = "Narrowed from " + pool.length + " to " + nextPool.length + " materials.";
+            setTimeout(() => doRound(nextPool, k + 1, roundIndex + 1), 0);
+          });
+        }
+      }
+      doRound(initialPool, startK, 1);
+    } else if (mode === "additive" && maxK >= ADDITIVE_START_K) {
+      // No pre-cut here: every eligible material is tested in the starting
+      // round's brute force and stays available for every later growth round.
+      // Only the alloy beam (not the material pool) narrows between rounds.
+      const pool = candidateDefs;
+      const totalRounds = maxK - ADDITIVE_START_K + 1;
+      const strategy = chooseAdditiveStartStrategy(pool.length);
+
+      function proceed(survivors, k, roundIndex, lastTotal) {
+        if (k === maxK) {
+          const ranked = rankItems(survivors, selectedStats);
+          finish(pool, ranked, lastTotal, "Additive alloying finished at size " + maxK + " with all " + pool.length +
+            " eligible materials (beam width " + ADDITIVE_BEAM_WIDTH.toLocaleString() + ")");
+          return;
+        }
+        const nextK = k + 1;
+        const prefix = "Additive alloying: round " + (roundIndex + 1) + " of " + totalRounds + " (growing to size " + nextK + "): ";
+        runExpansionRound(survivors, pool, Object.assign({ progressPrefix: prefix }, baseOpts), (nextSurvivors, roundTotal) => {
+          setTimeout(() => proceed(nextSurvivors, nextK, roundIndex + 1, roundTotal), 0);
+        });
+      }
+
+      if (strategy.useVia3) {
+        // Cheaper for this many materials: brute force the smaller size, 3
+        // space with a wide beam, then grow that to size 4 via insertion
+        // landing in the same "beam of alloys at size 4" state proceed() expects.
+        runExactSizeSearch(pool, ADDITIVE_ALT_START_K, Object.assign({ beamWidth: ADDITIVE_ALT_BEAM_WIDTH, progressPrefix: "Additive alloying pre-round (size " + ADDITIVE_ALT_START_K + "): " }, baseOpts), (survivorsAt3) => {
+          runExpansionRound(survivorsAt3, pool, Object.assign({ progressPrefix: "Additive alloying: round 1 of " + totalRounds + " (growing to size " + ADDITIVE_START_K + "): " }, baseOpts), (survivorsAt4, total4) => {
+            proceed(survivorsAt4, ADDITIVE_START_K, 1, total4);
+          });
+        });
+      } else {
+        runExactSizeSearch(pool, ADDITIVE_START_K, Object.assign({ beamWidth: ADDITIVE_BEAM_WIDTH, progressPrefix: "Additive alloying: round 1 of " + totalRounds + " (size " + ADDITIVE_START_K + "): " }, baseOpts), (survivors, total) => {
+          proceed(survivors, ADDITIVE_START_K, 1, total);
+        });
+      }
+    } else {
+      // Default / "auto", also the safe fallback for any unrecognized mode value.
+      const orderedByScore = selectPool(candidateDefs, selectedStats, maxK, forcedIds);
+      const pool = trimPoolToBudget(orderedByScore, forcedIds, maxK, cfg);
+      runComboSearchRound(pool, maxK, Object.assign({ topKCap: null, progressPrefix: "" }, baseOpts), (ranked, total) => {
+        finish(pool, ranked, total, "Auto-narrowed to " + pool.length + " of " + candidateDefs.length + " eligible materials");
+      });
+    }
   }
 
   // ---------------------------------------------------------
@@ -891,7 +1840,7 @@
     }
     if (st.ranked.length === 0) {
       container.appendChild(el("p", { class: "hint" }, [document.createTextNode(
-        which === "alloy" ? "No valid alloys found yet — set your filters and click \u201cApply filters & compute rankings.\u201d" : "No materials match the current filters."
+        which === "alloy" ? "No valid alloys found yet. Set your filters and click \u201cApply filters & compute rankings.\u201d" : "No materials match the current filters."
       )]));
       pagerEl.innerHTML = "";
       return;
@@ -912,9 +1861,28 @@
     nextBtn.disabled = st.page >= totalPages;
     nextBtn.addEventListener("click", () => { st.page++; renderResultsPage(which); container.scrollIntoView({ behavior: "smooth", block: "start" }); });
     const label = el("span", {}, [document.createTextNode("Page " + st.page + " of " + totalPages + " (" + st.ranked.length.toLocaleString() + " results)")]);
+
+    const jumpWrap = el("span", { class: "page-jump" });
+    const jumpInput = el("input", { type: "number", min: "1", max: String(totalPages), value: String(st.page), class: "page-jump-input" });
+    const jumpBtn = el("button", { class: "btn btn-ghost btn-sm" }, [document.createTextNode("Go")]);
+    function doJump() {
+      const n = parseInt(jumpInput.value, 10);
+      if (!isNaN(n)) {
+        st.page = clamp(n, 1, totalPages);
+        renderResultsPage(which);
+        container.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+    jumpBtn.addEventListener("click", doJump);
+    jumpInput.addEventListener("keydown", e => { if (e.key === "Enter") doJump(); });
+    jumpWrap.appendChild(document.createTextNode("Go to page:"));
+    jumpWrap.appendChild(jumpInput);
+    jumpWrap.appendChild(jumpBtn);
+
     pagerEl.appendChild(prevBtn);
     pagerEl.appendChild(label);
     pagerEl.appendChild(nextBtn);
+    pagerEl.appendChild(jumpWrap);
   }
 
   function renderResultCard(entry, rank, selectedStats) {
@@ -944,16 +1912,77 @@
       const compLine = compParts.join(" + ") + "  ·  keeps: " + (item.sharedTypes || []).join(", ");
       body.appendChild(el("div", { class: "composition" }, [document.createTextNode(compLine)]));
     } else {
-      body.appendChild(el("div", { class: "composition" }, [document.createTextNode(mats[0].type + " · " + (mats[0].categories.join(", ") || "—"))]));
+      body.appendChild(el("div", { class: "composition" }, [document.createTextNode(mats[0].type + " · " + (mats[0].categories.join(", ") || ", "))]));
     }
 
-    const statValues = el("div", { class: "stat-values" });
-    selectedStats.forEach(stat => {
-      const span = el("span", {}, [document.createTextNode(stat + ": ")]);
-      span.appendChild(el("b", {}, [document.createTextNode(formatNum(item.values[stat]))]));
-      statValues.appendChild(span);
-    });
-    body.appendChild(statValues);
+    if (item.single) {
+      const statValues = el("div", { class: "stat-values" });
+      selectedStats.forEach(stat => {
+        const span = el("span", {}, [document.createTextNode(stat + ": ")]);
+        span.appendChild(el("b", {}, [document.createTextNode(formatNum(item.values[stat]))]));
+        statValues.appendChild(span);
+      });
+      body.appendChild(statValues);
+
+      const row = mats[0];
+      body.appendChild(el("div", { class: "trait-line" }, [document.createTextNode("Traits: " + formatTraitList(traitsForRow(row)))]));
+
+      const def = state.materialDefs.find(d => d.id === row.id);
+      if (def) {
+        const otherTypes = Object.keys(def.rows).filter(t => t !== row.type).sort();
+        if (otherTypes.length) {
+          const chipsRow = el("div", { class: "type-chips-row" });
+          otherTypes.forEach(type => {
+            const otherRow = def.rows[type];
+            const chip = el("span", { class: "type-chip", tabindex: "0" }, [document.createTextNode(type)]);
+            const tooltip = el("div", { class: "type-tooltip" });
+            tooltip.appendChild(el("span", { class: "tt-title" }, [document.createTextNode("As " + type)]));
+            selectedStats.forEach(stat => {
+              const val = computeStatSingle(otherRow, stat);
+              tooltip.appendChild(el("span", { class: "tt-line" }, [document.createTextNode(stat + ": " + formatNum(val))]));
+            });
+            tooltip.appendChild(el("span", { class: "tt-line tt-traits" }, [document.createTextNode("Traits: " + formatTraitList(traitsForRow(otherRow)))]));
+            chip.appendChild(tooltip);
+            chipsRow.appendChild(chip);
+          });
+          body.appendChild(chipsRow);
+        }
+      }
+    } else {
+      body.appendChild(el("div", { class: "type-stat-heading" }, [document.createTextNode("As " + item.rankType)]));
+      const statValues = el("div", { class: "stat-values" });
+      selectedStats.forEach(stat => {
+        const span = el("span", {}, [document.createTextNode(stat + ": ")]);
+        span.appendChild(el("b", {}, [document.createTextNode(formatNum(item.values[stat]))]));
+        statValues.appendChild(span);
+      });
+      body.appendChild(statValues);
+
+      const mainTraits = extractTraitsForType(mats, item.rankType);
+      const mainTraitsText = mainTraits.length ? mainTraits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : ", ";
+      body.appendChild(el("div", { class: "trait-line" }, [document.createTextNode("Traits: " + mainTraitsText)]));
+
+      const otherTypes = item.sharedTypes.filter(t => t !== item.rankType).sort();
+      if (otherTypes.length) {
+        const chipsRow = el("div", { class: "type-chips-row" });
+        otherTypes.forEach(type => {
+          const chip = el("span", { class: "type-chip", tabindex: "0" }, [document.createTextNode(type)]);
+          const tooltip = el("div", { class: "type-tooltip" });
+          tooltip.appendChild(el("span", { class: "tt-title" }, [document.createTextNode("As " + type)]));
+          selectedStats.forEach(stat => {
+            const raw = computeStatForType(mats, stat, type);
+            const val = stat === "Harvest Tier" ? raw : raw * item.synergy;
+            tooltip.appendChild(el("span", { class: "tt-line" }, [document.createTextNode(stat + ": " + formatNum(val))]));
+          });
+          const typeTraits = extractTraitsForType(mats, type);
+          const typeTraitsText = typeTraits.length ? typeTraits.map(t => formatTraitLabel(t.name, t.level)).join(", ") : ", ";
+          tooltip.appendChild(el("span", { class: "tt-line tt-traits" }, [document.createTextNode("Traits: " + typeTraitsText)]));
+          chip.appendChild(tooltip);
+          chipsRow.appendChild(chip);
+        });
+        body.appendChild(chipsRow);
+      }
+    }
 
     body.appendChild(el("div", { class: "avg-rank" }, [document.createTextNode("Average rank: " + formatNum(entry.avgRank))]));
     card.appendChild(body);
@@ -990,21 +2019,27 @@
     reader.readAsText(file);
   });
 
-  $("#sampleDataBtn").addEventListener("click", () => {
-    if (typeof SAMPLE_TSV === "undefined") return;
-    loadTSVText(SAMPLE_TSV, "sample-data.tsv (bundled example)");
-  });
-
   $("#reloadBtn").addEventListener("click", () => {
     state.rows = [];
     state.materialDefs = [];
     state.alloy.computed = false;
     materialFilterSelection.clear();
     traitFilterSelection.clear();
+    traitFilterMinLevels.clear();
     $("#app").hidden = true;
     $("#uploadSection").hidden = false;
     $("#uploadError").hidden = true;
     fileInput.value = "";
   });
 
+})();
+
+  } catch (err) {
+    var banner = document.getElementById('fatalErrorBanner');
+    if (banner) {
+      banner.style.display = 'block';
+      banner.textContent = 'Something went wrong loading the page: ' + (err && err.message ? err.message : String(err)) + '. Please report this (see the browser console for details).';
+    }
+    console.error(err);
+  }
 })();
